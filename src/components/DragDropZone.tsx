@@ -24,8 +24,15 @@ export const DragDropZone: React.FC<DragDropZoneProps> = ({ onDrop, children }) 
       e.preventDefault();
       e.stopPropagation();
       dragCounterRef.current++;
+
+      // Only show overlay for external file drags (not internal clip drags)
+      // Check if dataTransfer contains files (external) vs just clipId data (internal)
       if (e.dataTransfer?.items && e.dataTransfer.items.length > 0) {
-        setIsDragging(true);
+        // Check if any item is a file (external drag from OS)
+        const hasFiles = Array.from(e.dataTransfer.items).some(item => item.kind === 'file');
+        if (hasFiles) {
+          setIsDragging(true);
+        }
       }
     };
 
