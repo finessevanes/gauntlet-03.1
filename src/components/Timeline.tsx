@@ -9,7 +9,12 @@ import { TimelineControls } from './TimelineControls';
 import { TimelineRuler } from './TimelineRuler';
 import { TimelinePlayhead } from './TimelinePlayhead';
 import { TimelineClip } from './TimelineClip';
+import { TrimTooltip } from './TrimTooltip';
+import { useTrimDrag } from '../hooks/useTrimDrag';
 import { calculateAutoFitZoom, getPixelsPerSecond, logTimelineClipDurations } from '../utils/timecode';
+
+// Timeline horizontal padding (px) - ensures edges are accessible for trimming
+const TIMELINE_PADDING = 20;
 
 export const Timeline: React.FC = () => {
   const clips = useSessionStore((state) => state.clips);
@@ -27,6 +32,7 @@ export const Timeline: React.FC = () => {
   const [isDraggingOver, setIsDraggingOver] = useState(false);
   const [draggedClipId, setDraggedClipId] = useState<string | null>(null);
   const [dropTargetIndex, setDropTargetIndex] = useState<number | null>(null);
+  const [hoveredEdge, setHoveredEdge] = useState<{ clipId: string; edge: 'left' | 'right' } | null>(null);
 
   // Log selection changes
   const handleClipSelect = useCallback((clipId: string) => {
@@ -41,6 +47,68 @@ export const Timeline: React.FC = () => {
 
   const containerRef = useRef<HTMLDivElement>(null);
   const trackRef = useRef<HTMLDivElement>(null);
+
+  // Trim functionality (Story 5)
+  const pixelsPerSecond = getPixelsPerSecond(zoomLevel);
+
+  // Trim completion handler
+  const handleTrimComplete = useCallback(async (clipId: string, inPoint: number, outPoint: number) => {
+    console.log('[Timeline] Trim complete, calling IPC:', { clipId: clipId.substring(0, 8), inPoint, outPoint });
+
+    try {
+      const result = await window.electron.trim.trimClip(clipId, inPoint, outPoint);
+
+      if (result.success && result.clip) {
+        // Update the clip in the session store
+        const updatedClips = clips.map(c => c.id === clipId ? result.clip! : c);
+        useSessionStore.setState({ clips: updatedClips });
+
+        // Recalculate timeline duration
+        const newDuration = timeline.clips.reduce((total, tc) => {
+          const clip = updatedClips.find(c => c.id === tc.clipId);
+          return total + (clip ? (clip.outPoint - clip.inPoint) : 0);
+        }, 0);
+
+        updateTimeline({ clips: timeline.clips, duration: newDuration });
+
+        console.log('[Timeline] Trim applied successfully, new duration:', newDuration);
+      } else {
+        console.error('[Timeline] Trim failed:', result.error);
+      }
+    } catch (error) {
+      console.error('[Timeline] Error trimming clip:', error);
+    }
+  }, [clips, timeline.clips, updateTimeline]);
+
+  // Initialize trim drag hook
+  const trimDrag = useTrimDrag(pixelsPerSecond, handleTrimComplete);
+
+  // Handle edge hover change
+  const handleEdgeHoverChange = useCallback((clipId: string, edge: 'left' | 'right' | null) => {
+    if (edge === null) {
+      setHoveredEdge(null);
+    } else {
+      setHoveredEdge({ clipId, edge });
+    }
+  }, []);
+
+  // Handle trim start
+  const handleTrimStart = useCallback((clipId: string, edge: 'left' | 'right', e: React.MouseEvent) => {
+    const clip = clips.find(c => c.id === clipId);
+    if (!clip) return;
+
+    // Find the start time of this clip on the timeline
+    let startTime = 0;
+    for (const timelineClip of timeline.clips) {
+      const tcClip = clips.find(c => c.id === timelineClip.clipId);
+      if (tcClip) {
+        if (tcClip.id === clipId) break;
+        startTime += tcClip.outPoint - tcClip.inPoint;
+      }
+    }
+
+    trimDrag.startDrag(clipId, edge, e, clip, startTime);
+  }, [clips, timeline.clips, trimDrag]);
 
   // Measure container width for auto-fit calculation
   useEffect(() => {
@@ -394,7 +462,6 @@ export const Timeline: React.FC = () => {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [selectedClipId, selectedClipSource, setSelectedClip]);
 
-  const pixelsPerSecond = getPixelsPerSecond(zoomLevel);
   const timelineWidth = Math.max(containerWidth, timeline.duration * pixelsPerSecond);
 
   // Handle click on timeline background to deselect clips
@@ -452,6 +519,7 @@ export const Timeline: React.FC = () => {
               zoomLevel={zoomLevel}
               containerWidth={containerWidth}
               timelineWidth={timelineWidth}
+              padding={TIMELINE_PADDING}
             />
 
             {/* Drop Indicator - Render once at the calculated position */}
@@ -463,7 +531,7 @@ export const Timeline: React.FC = () => {
                     // Calculate the pixel position for the drop indicator
                     if (dropTargetIndex === 0) {
                       // Insert at beginning
-                      return '0px';
+                      return `${TIMELINE_PADDING}px`;
                     } else if (dropTargetIndex >= timeline.clips.length) {
                       // Insert at end
                       const lastTimelineClip = timeline.clips[timeline.clips.length - 1];
@@ -471,13 +539,13 @@ export const Timeline: React.FC = () => {
                       if (lastClip) {
                         const lastClipStart = startTimes[lastTimelineClip.instanceId] || 0;
                         const lastClipDuration = lastClip.outPoint - lastClip.inPoint;
-                        return `${(lastClipStart + lastClipDuration) * pixelsPerSecond}px`;
+                        return `${TIMELINE_PADDING + (lastClipStart + lastClipDuration) * pixelsPerSecond}px`;
                       }
-                      return '0px';
+                      return `${TIMELINE_PADDING}px`;
                     } else {
                       // Insert between clips - show at start of clip at dropTargetIndex
                       const targetTimelineClip = timeline.clips[dropTargetIndex];
-                      return `${(startTimes[targetTimelineClip.instanceId] || 0) * pixelsPerSecond}px`;
+                      return `${TIMELINE_PADDING + (startTimes[targetTimelineClip.instanceId] || 0) * pixelsPerSecond}px`;
                     }
                   })(),
                   top: '24px',
@@ -496,6 +564,34 @@ export const Timeline: React.FC = () => {
               const clip = clips.find((c) => c.id === timelineClip.clipId);
               if (!clip) return null;
 
+              // Check if this clip is being trimmed and overlaps with any other clip
+              const isBeingTrimmed = trimDrag.dragging !== null && trimDrag.dragging.clipId === clip.id;
+              let isTrimmedClipOverlapping = false;
+
+              if (isBeingTrimmed && trimDrag.draggedInPoint !== null && trimDrag.draggedOutPoint !== null) {
+                // Calculate the current dragged clip's range on the timeline
+                const draggedClipStart = startTimes[timelineClip.instanceId] || 0;
+                const draggedClipEnd = draggedClipStart + (trimDrag.draggedOutPoint - trimDrag.draggedInPoint);
+
+                // Check if it overlaps with any other clip
+                for (let i = 0; i < timeline.clips.length; i++) {
+                  if (i === index) continue; // Skip itself
+
+                  const otherTimelineClip = timeline.clips[i];
+                  const otherClip = clips.find((c) => c.id === otherTimelineClip.clipId);
+                  if (!otherClip) continue;
+
+                  const otherClipStart = startTimes[otherTimelineClip.instanceId] || 0;
+                  const otherClipEnd = otherClipStart + (otherClip.outPoint - otherClip.inPoint);
+
+                  // Check for overlap: clip1.start < clip2.end AND clip1.end > clip2.start
+                  if (draggedClipStart < otherClipEnd && draggedClipEnd > otherClipStart) {
+                    isTrimmedClipOverlapping = true;
+                    break;
+                  }
+                }
+              }
+
               return (
                 <TimelineClip
                   key={timelineClip.instanceId}
@@ -504,6 +600,7 @@ export const Timeline: React.FC = () => {
                   index={index}
                   zoomLevel={zoomLevel}
                   startTime={startTimes[timelineClip.instanceId] || 0}
+                  padding={TIMELINE_PADDING}
                   onReorder={handleReorder}
                   onDelete={handleDelete}
                   onInsertLibraryClip={handleInsertLibraryClip}
@@ -515,6 +612,13 @@ export const Timeline: React.FC = () => {
                   onDragEnd={handleClipDragEnd}
                   onDragEnter={handleClipDragEnter}
                   draggedClipIndex={draggedClipId ? timeline.clips.findIndex(tc => tc.instanceId === draggedClipId) : null}
+                  hoveredEdge={hoveredEdge}
+                  onEdgeHoverChange={handleEdgeHoverChange}
+                  onTrimStart={handleTrimStart}
+                  isTrimming={trimDrag.dragging !== null && trimDrag.dragging.clipId === clip.id}
+                  draggedInPoint={trimDrag.dragging?.clipId === clip.id ? trimDrag.draggedInPoint : null}
+                  draggedOutPoint={trimDrag.dragging?.clipId === clip.id ? trimDrag.draggedOutPoint : null}
+                  isTrimmedClipOverlapping={isTrimmedClipOverlapping}
                 />
               );
             })}
@@ -524,11 +628,34 @@ export const Timeline: React.FC = () => {
               playheadPosition={playheadPosition}
               timelineDuration={timeline.duration}
               zoomLevel={zoomLevel}
+              padding={TIMELINE_PADDING}
               onSeek={handleSeek}
             />
           </div>
         )}
       </div>
+
+      {/* Trim Tooltip (Story 5) */}
+      {trimDrag.dragging && trimDrag.tooltipVisible && (() => {
+        const clip = clips.find(c => c.id === trimDrag.dragging!.clipId);
+        if (!clip) return null;
+
+        const originalDuration = clip.outPoint - clip.inPoint;
+        const newDuration = (trimDrag.draggedOutPoint ?? clip.outPoint) - (trimDrag.draggedInPoint ?? clip.inPoint);
+        const draggedInPoint = trimDrag.draggedInPoint ?? clip.inPoint;
+        const draggedOutPoint = trimDrag.draggedOutPoint ?? clip.outPoint;
+        const isExpanding = draggedInPoint < clip.inPoint || draggedOutPoint > clip.outPoint;
+
+        return (
+          <TrimTooltip
+            originalDuration={originalDuration}
+            newDuration={newDuration}
+            position={trimDrag.tooltipPosition}
+            visible={true}
+            isExpanding={isExpanding}
+          />
+        );
+      })()}
     </div>
   );
 };
@@ -551,6 +678,8 @@ const styles = {
     position: 'relative' as const,
     height: '120px',
     minWidth: '100%',
+    paddingLeft: '20px', // Add padding to make left edge easier to access
+    paddingRight: '20px', // Add padding for symmetry
   },
   emptyState: {
     display: 'flex',

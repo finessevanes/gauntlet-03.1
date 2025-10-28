@@ -61,3 +61,27 @@ export interface CheckFileExistsResponse {
   exists: boolean;              // True if file exists and is accessible
   error?: string;               // Error message if file not found or not accessible
 }
+
+// Trim-related IPC types (Story 5: Trim Functionality)
+
+export interface TrimClipRequest {
+  clipId: string;               // ID of clip to trim
+  inPoint: number;              // New start point in seconds
+  outPoint: number;             // New end point in seconds
+}
+
+export interface TrimClipResponse {
+  success: boolean;             // Whether trim succeeded
+  clip?: import('./session').Clip; // Updated clip data
+  error?: string;               // Error message if trim failed
+}
+
+export interface ResetTrimRequest {
+  clipId: string;               // ID of clip to reset
+}
+
+export interface ResetTrimResponse {
+  success: boolean;             // Whether reset succeeded
+  clip?: import('./session').Clip; // Updated clip data
+  error?: string;               // Error message if reset failed
+}

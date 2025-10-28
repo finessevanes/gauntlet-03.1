@@ -14,6 +14,10 @@ import {
   ThumbnailResponse,
   CheckFileExistsRequest,
   CheckFileExistsResponse,
+  TrimClipRequest,
+  TrimClipResponse,
+  ResetTrimRequest,
+  ResetTrimResponse,
 } from './types/ipc';
 import { TimelineClip } from './types/session';
 
@@ -149,6 +153,25 @@ contextBridge.exposeInMainWorld('electron', {
   },
 
   /**
+   * Trim API (Story 5: Trim Functionality)
+   */
+  trim: {
+    /**
+     * Trim a clip to new in/out points
+     */
+    trimClip: (clipId: string, inPoint: number, outPoint: number): Promise<TrimClipResponse> => {
+      return ipcRenderer.invoke('trim_clip', { clipId, inPoint, outPoint } as TrimClipRequest);
+    },
+
+    /**
+     * Reset trim to full duration
+     */
+    resetTrim: (clipId: string): Promise<ResetTrimResponse> => {
+      return ipcRenderer.invoke('reset_trim', { clipId } as ResetTrimRequest);
+    },
+  },
+
+  /**
    * Drag & Drop API (Story 2: Video Import)
    * Sets up event listener and callback
    */
@@ -226,6 +249,10 @@ declare global {
         getTimelineState(): Promise<{ clips: import('./types/session').TimelineClip[]; duration: number; playheadPosition: number; zoomLevel: number; scrollPosition: number }>;
         setScrollPosition(scrollX: number): Promise<{ success: boolean }>;
         saveSession(session: any): Promise<{ success: boolean; error?: string }>;
+      };
+      trim: {
+        trimClip(clipId: string, inPoint: number, outPoint: number): Promise<import('./types/ipc').TrimClipResponse>;
+        resetTrim(clipId: string): Promise<import('./types/ipc').ResetTrimResponse>;
       };
       dragDrop: {
         onDrop(callback: (filePaths: string[]) => void): () => void;

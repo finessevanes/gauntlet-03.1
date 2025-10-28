@@ -10,6 +10,7 @@ interface TimelinePlayheadProps {
   playheadPosition: number;   // Position in seconds
   timelineDuration: number;   // Total duration in seconds
   zoomLevel: number;          // Zoom level (100-1000)
+  padding: number;            // Timeline horizontal padding (px)
   onSeek: (time: number) => void;
 }
 
@@ -17,6 +18,7 @@ export const TimelinePlayhead: React.FC<TimelinePlayheadProps> = ({
   playheadPosition,
   timelineDuration,
   zoomLevel,
+  padding,
   onSeek,
 }) => {
   const [isDragging, setIsDragging] = useState(false);
@@ -24,7 +26,7 @@ export const TimelinePlayhead: React.FC<TimelinePlayheadProps> = ({
   const containerRef = useRef<HTMLDivElement>(null);
 
   const pixelsPerSecond = getPixelsPerSecond(zoomLevel);
-  const xPosition = playheadPosition * pixelsPerSecond;
+  const xPosition = padding + (playheadPosition * pixelsPerSecond); // Add padding offset
 
   // Handle mouse down on playhead (start drag)
   const handleMouseDown = (e: React.MouseEvent) => {
@@ -40,7 +42,7 @@ export const TimelinePlayhead: React.FC<TimelinePlayheadProps> = ({
       if (!containerRef.current) return;
 
       const rect = containerRef.current.getBoundingClientRect();
-      const x = e.clientX - rect.left;
+      const x = e.clientX - rect.left - padding; // Account for padding
       const newTime = Math.max(0, Math.min(x / pixelsPerSecond, timelineDuration));
 
       onSeek(newTime);
