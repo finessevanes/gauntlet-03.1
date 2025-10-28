@@ -8,7 +8,7 @@ import { useSessionStore } from '../store/sessionStore';
 import { EmptyState } from './EmptyState';
 import { ImportButton } from './ImportButton';
 import { DragDropZone } from './DragDropZone';
-import { ClipCard } from './ClipCard';
+import { Library } from './Library';
 import { ImportProgressModal } from './ImportProgressModal';
 import { ErrorModal } from './ErrorModal';
 import { useImport } from '../hooks/useImport';
@@ -40,33 +40,22 @@ export const MainLayout: React.FC = () => {
 
         {/* Top section: Library (left) + Preview (right) */}
         <div style={styles.topSection}>
-          {/* Library Panel (left, 40%) */}
-          <div style={styles.library}>
+          {/* Library Panel (left, 20%) */}
+          <div style={styles.libraryWrapper}>
             <div style={styles.panelHeader}>
               <span>Library</span>
               <ImportButton onClick={openFilePicker} disabled={importProgress.length > 0} />
             </div>
-            <div style={styles.libraryContent}>
-              {/* Clip cards in grid */}
-              {clips.length === 0 ? (
-                <EmptyState type="library" />
-              ) : (
-                <div style={styles.clipGrid}>
-                  {clips.map((clip) => (
-                    <ClipCard key={clip.id} clip={clip} />
-                  ))}
-                </div>
-              )}
-            </div>
+            <Library />
           </div>
 
-          {/* Preview Panel (right, 60%) */}
+          {/* Preview Panel (right, 80%) */}
           <div style={styles.preview}>
             <div style={styles.panelHeader}>Preview</div>
             <div style={styles.previewContent}>
               <div style={styles.previewPlaceholder}>
                 <span style={styles.previewIcon}>▶️</span>
-                <p style={styles.previewText}>Preview Player</p>
+                <p style={styles.previewText}>Preview Player (Story 6)</p>
               </div>
             </div>
           </div>
@@ -105,25 +94,14 @@ const styles = {
     height: '60%',
     borderBottom: '1px solid #333',
   },
-  library: {
-    width: '40%',
+  libraryWrapper: {
+    width: '20%',
     borderRight: '1px solid #333',
     display: 'flex',
     flexDirection: 'column' as const,
   },
-  libraryContent: {
-    flex: 1,
-    overflow: 'auto',
-    position: 'relative' as const,
-    padding: '12px',
-  },
-  clipGrid: {
-    display: 'grid',
-    gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))',
-    gap: '12px',
-  },
   preview: {
-    width: '60%',
+    width: '80%',
     display: 'flex',
     flexDirection: 'column' as const,
     backgroundColor: '#000',
