@@ -11,6 +11,8 @@ interface ClipCardProps {
   clip: Clip;
   onClick?: () => void;
   onDragStart?: (e: React.DragEvent) => void;
+  onDragEnd?: () => void;
+  onDelete?: () => void;
   isSelected?: boolean;
   isBroken?: boolean;
 }
@@ -26,10 +28,14 @@ export const ClipCard: React.FC<ClipCardProps> = ({
   clip,
   onClick,
   onDragStart,
+  onDragEnd,
+  onDelete,
   isSelected = false,
   isBroken = false
 }) => {
   const [isHovered, setIsHovered] = React.useState(false);
+  const [showContextMenu, setShowContextMenu] = React.useState(false);
+  const [contextMenuPosition, setContextMenuPosition] = React.useState({ x: 0, y: 0 });
 
   const handleClick = () => {
     if (onClick) {
@@ -43,21 +49,76 @@ export const ClipCard: React.FC<ClipCardProps> = ({
     }
   };
 
+  const handleDragEnd = () => {
+    if (!isBroken && onDragEnd) {
+      onDragEnd();
+    }
+  };
+
+  // Handle right-click context menu
+  const handleContextMenu = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+
+    // Also select the clip when right-clicking
+    if (onClick) {
+      onClick();
+    }
+
+    setContextMenuPosition({ x: e.clientX, y: e.clientY });
+    setShowContextMenu(true);
+  };
+
+  // Handle delete from context menu
+  const handleDeleteClick = () => {
+    setShowContextMenu(false);
+    if (onDelete) {
+      onDelete();
+    }
+  };
+
+  // Handle Delete key press
+  React.useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (isSelected && (e.key === 'Delete' || e.key === 'Backspace')) {
+        e.preventDefault();
+        if (onDelete) {
+          onDelete();
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isSelected, onDelete]);
+
+  // Close context menu when clicking outside
+  React.useEffect(() => {
+    if (!showContextMenu) return;
+
+    const handleClickOutside = () => setShowContextMenu(false);
+    document.addEventListener('click', handleClickOutside);
+    return () => document.removeEventListener('click', handleClickOutside);
+  }, [showContextMenu]);
+
   return (
-    <div
-      style={{
-        ...styles.card,
-        ...(isSelected && styles.cardSelected),
-        ...(isBroken && styles.cardBroken),
-        ...(isHovered && !isBroken && styles.cardHover),
-        cursor: isBroken ? 'not-allowed' : 'pointer',
-      }}
-      onClick={handleClick}
-      onMouseEnter={() => setIsHovered(true)}
-      onMouseLeave={() => setIsHovered(false)}
-      draggable={!isBroken}
-      onDragStart={handleDragStart}
-    >
+    <>
+      <div
+        style={{
+          ...styles.card,
+          ...(isSelected && styles.cardSelected),
+          ...(isBroken && styles.cardBroken),
+          ...(isHovered && !isBroken && styles.cardHover),
+          cursor: isBroken ? 'not-allowed' : 'pointer',
+        }}
+        onClick={handleClick}
+        onContextMenu={handleContextMenu}
+        onMouseEnter={() => setIsHovered(true)}
+        onMouseLeave={() => setIsHovered(false)}
+        draggable={!isBroken}
+        onDragStart={handleDragStart}
+        onDragEnd={handleDragEnd}
+      >
       {/* Thumbnail with duration overlay */}
       <div style={styles.thumbnailContainer}>
         {/* Broken file icon overlay */}
@@ -87,7 +148,26 @@ export const ClipCard: React.FC<ClipCardProps> = ({
       <div style={styles.filename} title={clip.filename}>
         {clip.filename}
       </div>
-    </div>
+      </div>
+
+      {/* Context Menu */}
+      {showContextMenu && (
+        <div
+          style={{
+            ...styles.contextMenu,
+            left: `${contextMenuPosition.x}px`,
+            top: `${contextMenuPosition.y}px`,
+          }}
+        >
+          <button
+            onClick={handleDeleteClick}
+            style={styles.contextMenuItem}
+          >
+            Delete
+          </button>
+        </div>
+      )}
+    </>
   );
 };
 
@@ -152,5 +232,27 @@ const styles = {
     textOverflow: 'ellipsis',
     whiteSpace: 'nowrap' as const,
     lineHeight: 1.3,
+  },
+  contextMenu: {
+    position: 'fixed' as const,
+    backgroundColor: '#2a2a2a',
+    border: '1px solid #555',
+    borderRadius: '4px',
+    boxShadow: '0 2px 8px rgba(0, 0, 0, 0.5)',
+    zIndex: 1000,
+    padding: '4px',
+  },
+  contextMenuItem: {
+    display: 'block',
+    width: '100%',
+    padding: '8px 16px',
+    backgroundColor: 'transparent',
+    border: 'none',
+    color: '#ccc',
+    fontSize: '12px',
+    textAlign: 'left' as const,
+    cursor: 'pointer',
+    borderRadius: '2px',
+    transition: 'background-color 0.2s',
   },
 };
