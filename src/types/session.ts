@@ -23,8 +23,13 @@ export interface Clip {
   bitrate?: number;           // Optional: bits per second (e.g., 5000000)
 }
 
+export interface TimelineClip {
+  instanceId: string;         // Unique ID for this timeline instance (UUID)
+  clipId: string;             // Reference to the library clip
+}
+
 export interface Timeline {
-  clips: string[];            // Array of clip IDs in sequence
+  clips: TimelineClip[];      // Array of timeline clip instances in sequence
   duration: number;           // Total timeline duration (sum of trimmed clips)
 }
 
