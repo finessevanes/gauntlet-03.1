@@ -18,23 +18,20 @@ interface ImportProgressModalProps {
 }
 
 export const ImportProgressModal: React.FC<ImportProgressModalProps> = ({ files, onClose }) => {
-  const [autoClosing, setAutoClosing] = useState(false);
-
   const totalFiles = files.length;
   const completedFiles = files.filter(f => f.status === 'completed' || f.status === 'error').length;
   const isComplete = completedFiles === totalFiles && totalFiles > 0;
   const progressPercent = totalFiles > 0 ? (completedFiles / totalFiles) * 100 : 0;
 
-  // Auto-close when all files are done (after 1.5 seconds)
+  // Auto-close when all files are done (after 0.5 seconds)
   useEffect(() => {
-    if (isComplete && !autoClosing) {
-      setAutoClosing(true);
+    if (isComplete) {
       const timer = setTimeout(() => {
         onClose();
-      }, 1500);
+      }, 500);
       return () => clearTimeout(timer);
     }
-  }, [isComplete, autoClosing, onClose]);
+  }, [isComplete, onClose]);
 
   if (files.length === 0) return null;
 
@@ -45,9 +42,6 @@ export const ImportProgressModal: React.FC<ImportProgressModalProps> = ({ files,
           <h2 style={styles.title}>
             {isComplete ? 'Import Complete' : `Importing ${completedFiles + 1} of ${totalFiles}...`}
           </h2>
-          {isComplete && (
-            <button onClick={onClose} style={styles.closeButton}>×</button>
-          )}
         </div>
 
         {/* Progress Bar */}

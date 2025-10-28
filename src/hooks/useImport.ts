@@ -136,6 +136,14 @@ export function useImport() {
           bitrate: metadataResult.data!.bitrate,
         };
 
+        console.log('[Import] Created clip:', {
+          filename: clip.filename,
+          duration: clip.duration,
+          inPoint: clip.inPoint,
+          outPoint: clip.outPoint,
+          effectiveDuration: clip.outPoint - clip.inPoint,
+        });
+
         // Add to session
         addClip(clip);
 

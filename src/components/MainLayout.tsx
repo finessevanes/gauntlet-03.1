@@ -12,6 +12,7 @@ import { Library } from './Library';
 import { ImportProgressModal } from './ImportProgressModal';
 import { ErrorModal } from './ErrorModal';
 import { useImport } from '../hooks/useImport';
+import { Timeline } from './Timeline';
 
 export const MainLayout: React.FC = () => {
   const clips = useSessionStore((state) => state.clips);
@@ -65,15 +66,7 @@ export const MainLayout: React.FC = () => {
         <div style={styles.timeline}>
           <div style={styles.panelHeader}>Timeline</div>
           <div style={styles.timelineContent}>
-            {timeline.clips.length === 0 ? (
-              <EmptyState type="timeline" />
-            ) : (
-              <div style={styles.timelineTrack}>
-                <p style={styles.timelineInfo}>
-                  {timeline.clips.length} clip{timeline.clips.length !== 1 ? 's' : ''} on timeline
-                </p>
-              </div>
-            )}
+            <Timeline />
           </div>
         </div>
       </div>
@@ -137,16 +130,8 @@ const styles = {
   },
   timelineContent: {
     flex: 1,
-    overflow: 'auto',
     position: 'relative' as const,
-  },
-  timelineTrack: {
-    padding: '16px',
-  },
-  timelineInfo: {
-    fontSize: '13px',
-    color: '#999',
-    margin: 0,
+    overflow: 'hidden',
   },
   panelHeader: {
     padding: '12px 16px',
