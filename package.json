@@ -39,10 +39,13 @@
     "vite": "^5.4.21"
   },
   "dependencies": {
+    "@types/uuid": "^10.0.0",
     "electron-squirrel-startup": "^1.0.1",
     "ffmpeg-static": "^5.2.0",
+    "ffprobe-static": "^3.1.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
+    "uuid": "^13.0.0",
     "zustand": "^5.0.8"
   }
 }

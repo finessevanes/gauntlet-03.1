@@ -215,5 +215,47 @@ function validateClip(clip: any): boolean {
     return false;
   }
 
+  // Validate new fields from Story 2: Video Import
+  if (typeof clip.filename !== 'string' || clip.filename.length === 0) {
+    console.error('[SessionManager] Invalid clip filename:', clip.filename);
+    return false;
+  }
+
+  if (typeof clip.thumbnail !== 'string') {
+    console.error('[SessionManager] Invalid clip thumbnail:', clip.thumbnail);
+    return false;
+  }
+
+  if (!clip.resolution || typeof clip.resolution !== 'object') {
+    console.error('[SessionManager] Invalid clip resolution:', clip.resolution);
+    return false;
+  }
+
+  if (typeof clip.resolution.width !== 'number' || clip.resolution.width <= 0) {
+    console.error('[SessionManager] Invalid clip resolution width:', clip.resolution.width);
+    return false;
+  }
+
+  if (typeof clip.resolution.height !== 'number' || clip.resolution.height <= 0) {
+    console.error('[SessionManager] Invalid clip resolution height:', clip.resolution.height);
+    return false;
+  }
+
+  if (typeof clip.frameRate !== 'number' || clip.frameRate <= 0) {
+    console.error('[SessionManager] Invalid clip frameRate:', clip.frameRate);
+    return false;
+  }
+
+  if (typeof clip.codec !== 'string' || clip.codec.length === 0) {
+    console.error('[SessionManager] Invalid clip codec:', clip.codec);
+    return false;
+  }
+
+  // Bitrate is optional
+  if (clip.bitrate !== undefined && (typeof clip.bitrate !== 'number' || clip.bitrate <= 0)) {
+    console.error('[SessionManager] Invalid clip bitrate:', clip.bitrate);
+    return false;
+  }
+
   return true;
 }

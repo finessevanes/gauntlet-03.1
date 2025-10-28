@@ -6,77 +6,91 @@
 import React from 'react';
 import { useSessionStore } from '../store/sessionStore';
 import { EmptyState } from './EmptyState';
+import { ImportButton } from './ImportButton';
+import { DragDropZone } from './DragDropZone';
+import { ClipCard } from './ClipCard';
+import { ImportProgressModal } from './ImportProgressModal';
+import { ErrorModal } from './ErrorModal';
+import { useImport } from '../hooks/useImport';
 
 export const MainLayout: React.FC = () => {
   const clips = useSessionStore((state) => state.clips);
   const timeline = useSessionStore((state) => state.timeline);
+  const { importProgress, importError, importVideos, openFilePicker, clearImportProgress, clearImportError } = useImport();
 
   return (
-    <div style={styles.container}>
-      {/* Top section: Library + Preview */}
-      <div style={styles.topSection}>
-        {/* Library Panel (left, 20%) */}
-        <div style={styles.library}>
-          <div style={styles.panelHeader}>Library</div>
-          <div style={styles.panelContent}>
-            {clips.length === 0 ? (
-              <EmptyState type="library" />
+    <DragDropZone onDrop={importVideos}>
+      <div style={styles.container}>
+        {/* Error Modal */}
+        {importError && (
+          <ErrorModal
+            title="Cannot Import File"
+            message={`Unable to import "${importError.filename}".`}
+            details={
+              importError.codecAttempted
+                ? `Video codec "${importError.codecAttempted.toUpperCase()}" is not supported. Only H.264 codec in MP4 or MOV format is accepted.`
+                : `${importError.error}. Only H.264 codec in MP4 or MOV format is accepted.`
+            }
+            onClose={clearImportError}
+          />
+        )}
+
+        {/* Import Progress Modal */}
+        <ImportProgressModal files={importProgress} onClose={clearImportProgress} />
+
+        {/* Top section: Library (left) + Preview (right) */}
+        <div style={styles.topSection}>
+          {/* Library Panel (left, 40%) */}
+          <div style={styles.library}>
+            <div style={styles.panelHeader}>
+              <span>Library</span>
+              <ImportButton onClick={openFilePicker} disabled={importProgress.length > 0} />
+            </div>
+            <div style={styles.libraryContent}>
+              {/* Clip cards in grid */}
+              {clips.length === 0 ? (
+                <EmptyState type="library" />
+              ) : (
+                <div style={styles.clipGrid}>
+                  {clips.map((clip) => (
+                    <ClipCard key={clip.id} clip={clip} />
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Preview Panel (right, 60%) */}
+          <div style={styles.preview}>
+            <div style={styles.panelHeader}>Preview</div>
+            <div style={styles.previewContent}>
+              <div style={styles.previewPlaceholder}>
+                <span style={styles.previewIcon}>▶️</span>
+                <p style={styles.previewText}>Preview Player</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Bottom section: Timeline (40% height) */}
+        <div style={styles.timeline}>
+          <div style={styles.panelHeader}>Timeline</div>
+          <div style={styles.timelineContent}>
+            {timeline.clips.length === 0 ? (
+              <EmptyState type="timeline" />
             ) : (
-              <div style={styles.clipList}>
-                {clips.map((clip) => (
-                  <div key={clip.id} style={styles.clipCard}>
-                    <div style={styles.clipThumbnail}>🎥</div>
-                    <div style={styles.clipInfo}>
-                      <div style={styles.clipName}>{clip.filePath.split('/').pop()}</div>
-                      <div style={styles.clipDuration}>{formatDuration(clip.duration)}</div>
-                    </div>
-                  </div>
-                ))}
+              <div style={styles.timelineTrack}>
+                <p style={styles.timelineInfo}>
+                  {timeline.clips.length} clip{timeline.clips.length !== 1 ? 's' : ''} on timeline
+                </p>
               </div>
             )}
           </div>
         </div>
-
-        {/* Preview Panel (center, 40%) */}
-        <div style={styles.preview}>
-          <div style={styles.panelHeader}>Preview</div>
-          <div style={styles.panelContent}>
-            <div style={styles.previewPlaceholder}>
-              <span style={styles.previewIcon}>▶️</span>
-              <p style={styles.previewText}>Preview Player</p>
-            </div>
-          </div>
-        </div>
-
-        {/* Right spacer (40%) - for future panels */}
-        <div style={styles.rightSpacer}></div>
       </div>
-
-      {/* Bottom section: Timeline (30% height) */}
-      <div style={styles.timeline}>
-        <div style={styles.panelHeader}>Timeline</div>
-        <div style={styles.panelContent}>
-          {timeline.clips.length === 0 ? (
-            <EmptyState type="timeline" />
-          ) : (
-            <div style={styles.timelineTrack}>
-              <p style={styles.timelineInfo}>
-                {timeline.clips.length} clip{timeline.clips.length !== 1 ? 's' : ''} on timeline
-              </p>
-            </div>
-          )}
-        </div>
-      </div>
-    </div>
+    </DragDropZone>
   );
 };
-
-// Helper: Format duration in MM:SS
-function formatDuration(seconds: number): string {
-  const mins = Math.floor(seconds / 60);
-  const secs = Math.floor(seconds % 60);
-  return `${mins}:${secs.toString().padStart(2, '0')}`;
-}
 
 const styles = {
   container: {
@@ -88,29 +102,73 @@ const styles = {
   },
   topSection: {
     display: 'flex',
-    height: '70%',
+    height: '60%',
     borderBottom: '1px solid #333',
   },
   library: {
-    width: '20%',
+    width: '40%',
     borderRight: '1px solid #333',
     display: 'flex',
     flexDirection: 'column' as const,
+  },
+  libraryContent: {
+    flex: 1,
+    overflow: 'auto',
+    position: 'relative' as const,
+    padding: '12px',
+  },
+  clipGrid: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))',
+    gap: '12px',
   },
   preview: {
-    width: '40%',
-    borderRight: '1px solid #333',
+    width: '60%',
     display: 'flex',
     flexDirection: 'column' as const,
+    backgroundColor: '#000',
   },
-  rightSpacer: {
-    width: '40%',
-    backgroundColor: '#1a1a1a',
+  previewContent: {
+    flex: 1,
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    position: 'relative' as const,
+  },
+  previewPlaceholder: {
+    display: 'flex',
+    flexDirection: 'column' as const,
+    alignItems: 'center',
+    justifyContent: 'center',
+    color: '#666',
+  },
+  previewIcon: {
+    fontSize: '64px',
+    marginBottom: '16px',
+    opacity: 0.3,
+  },
+  previewText: {
+    fontSize: '16px',
+    margin: 0,
+    opacity: 0.5,
   },
   timeline: {
-    height: '30%',
+    height: '40%',
     display: 'flex',
     flexDirection: 'column' as const,
+  },
+  timelineContent: {
+    flex: 1,
+    overflow: 'auto',
+    position: 'relative' as const,
+  },
+  timelineTrack: {
+    padding: '16px',
+  },
+  timelineInfo: {
+    fontSize: '13px',
+    color: '#999',
+    margin: 0,
   },
   panelHeader: {
     padding: '12px 16px',
@@ -120,75 +178,8 @@ const styles = {
     fontWeight: 'bold' as const,
     textTransform: 'uppercase' as const,
     color: '#999',
-  },
-  panelContent: {
-    flex: 1,
-    overflow: 'auto',
-    position: 'relative' as const,
-  },
-  clipList: {
-    padding: '8px',
-  },
-  clipCard: {
     display: 'flex',
+    justifyContent: 'space-between',
     alignItems: 'center',
-    padding: '8px',
-    marginBottom: '8px',
-    backgroundColor: '#2a2a2a',
-    borderRadius: '4px',
-    cursor: 'pointer',
-    transition: 'background-color 0.2s',
-  },
-  clipThumbnail: {
-    width: '48px',
-    height: '48px',
-    backgroundColor: '#333',
-    borderRadius: '4px',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    fontSize: '24px',
-    marginRight: '12px',
-  },
-  clipInfo: {
-    flex: 1,
-    overflow: 'hidden',
-  },
-  clipName: {
-    fontSize: '13px',
-    color: '#ffffff',
-    overflow: 'hidden',
-    textOverflow: 'ellipsis',
-    whiteSpace: 'nowrap' as const,
-  },
-  clipDuration: {
-    fontSize: '11px',
-    color: '#999',
-    marginTop: '4px',
-  },
-  previewPlaceholder: {
-    display: 'flex',
-    flexDirection: 'column' as const,
-    alignItems: 'center',
-    justifyContent: 'center',
-    height: '100%',
-    color: '#666',
-  },
-  previewIcon: {
-    fontSize: '48px',
-    marginBottom: '16px',
-    opacity: 0.5,
-  },
-  previewText: {
-    fontSize: '14px',
-    margin: 0,
-  },
-  timelineTrack: {
-    padding: '16px',
-  },
-  timelineInfo: {
-    fontSize: '13px',
-    color: '#999',
-    margin: 0,
   },
 };

@@ -16,6 +16,7 @@ interface SessionState {
 
   // Actions
   setSession: (session: Session) => void;
+  addClip: (clip: Clip) => void;
   updateClips: (clips: Clip[]) => void;
   updateTimeline: (timeline: Timeline) => void;
   setZoomLevel: (level: number) => void;
@@ -47,6 +48,11 @@ export const useSessionStore = create<SessionState>((set) => ({
     playheadPosition: session.playheadPosition,
     scrollPosition: session.scrollPosition,
   }),
+
+  // Add a single clip to the library
+  addClip: (clip: Clip) => set((state) => ({
+    clips: [...state.clips, clip],
+  })),
 
   // Update clips array
   updateClips: (clips: Clip[]) => set({ clips }),
