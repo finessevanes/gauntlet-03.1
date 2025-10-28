@@ -11,6 +11,7 @@ interface TimelineRulerProps {
   zoomLevel: number;         // Zoom level (100-1000)
   containerWidth: number;    // Width of timeline container
   timelineWidth: number;     // Calculated timeline width (passed from parent)
+  padding: number;           // Timeline horizontal padding (px)
 }
 
 export const TimelineRuler: React.FC<TimelineRulerProps> = ({
@@ -18,6 +19,7 @@ export const TimelineRuler: React.FC<TimelineRulerProps> = ({
   zoomLevel,
   containerWidth,
   timelineWidth,
+  padding,
 }) => {
   const pixelsPerSecond = getPixelsPerSecond(zoomLevel);
 
@@ -51,12 +53,12 @@ export const TimelineRuler: React.FC<TimelineRulerProps> = ({
       result.push({
         time,
         label: formatDuration(time),
-        x: time * pixelsPerSecond,
+        x: padding + (time * pixelsPerSecond), // Add padding offset
       });
     }
 
     return result;
-  }, [timelineDuration, markerInterval, pixelsPerSecond]);
+  }, [timelineDuration, markerInterval, pixelsPerSecond, padding]);
 
   // Use the timeline width passed from parent to ensure ruler and timeline are in sync
   return (

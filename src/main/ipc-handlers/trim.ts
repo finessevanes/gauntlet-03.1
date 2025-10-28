@@ -1,0 +1,164 @@
+/**
+ * Trim IPC Handlers
+ * Handles trim_clip and reset_trim operations
+ */
+
+import { ipcMain } from 'electron';
+import { loadSession, saveSession } from '../services/session-manager';
+import { Session } from '../../types/session';
+
+/**
+ * Validate and apply trim points to a clip
+ */
+export function registerTrimHandlers() {
+  // trim_clip: Validate and apply trim points
+  ipcMain.handle('trim_clip', async (event, { clipId, inPoint, outPoint }: { clipId: string; inPoint: number; outPoint: number }) => {
+    console.log('[Trim IPC] trim_clip called:', { clipId: clipId.substring(0, 8), inPoint, outPoint });
+
+    try {
+      const session = loadSession();
+
+      if (!session) {
+        console.error('[Trim IPC] No session found');
+        return {
+          success: false,
+          error: 'No session found',
+        };
+      }
+
+      // Find clip in session
+      const clip = session.clips.find(c => c.id === clipId);
+
+      if (!clip) {
+        console.error('[Trim IPC] Clip not found:', clipId);
+        return {
+          success: false,
+          error: `Clip not found: ${clipId}`,
+        };
+      }
+
+      // Auto-correct: Clamp inPoint to valid range [0, clip.duration]
+      let correctedInPoint = inPoint;
+      let correctedOutPoint = outPoint;
+
+      if (correctedInPoint < 0) {
+        console.warn('[Trim IPC] Auto-correcting inPoint from', inPoint, 'to 0');
+        correctedInPoint = 0;
+      }
+
+      // Auto-correct: Clamp outPoint to valid range [0, clip.duration]
+      if (correctedOutPoint > clip.duration) {
+        console.warn('[Trim IPC] Auto-correcting outPoint from', outPoint, 'to clip.duration', clip.duration);
+        correctedOutPoint = clip.duration;
+      }
+
+      // Validation: inPoint must be < outPoint (minimum 1 frame = ~0.033s)
+      const MIN_DURATION = 0.033; // ~1 frame at 30fps
+      if (correctedInPoint >= correctedOutPoint || (correctedOutPoint - correctedInPoint) < MIN_DURATION) {
+        console.error('[Trim IPC] Invalid range (inPoint >= outPoint or duration too small):', {
+          inPoint: correctedInPoint,
+          outPoint: correctedOutPoint,
+          diff: correctedOutPoint - correctedInPoint
+        });
+        return {
+          success: false,
+          error: `inPoint must be < outPoint with minimum duration of ${MIN_DURATION}s`,
+        };
+      }
+
+      // Update clip trim points
+      clip.inPoint = correctedInPoint;
+      clip.outPoint = correctedOutPoint;
+
+      console.log('[Trim IPC] Clip trimmed successfully:', {
+        clipId: clipId.substring(0, 8),
+        filename: clip.filename,
+        inPoint: clip.inPoint,
+        outPoint: clip.outPoint,
+        trimmedDuration: clip.outPoint - clip.inPoint,
+      });
+
+      // Save session state
+      const saved = saveSession(session);
+      if (!saved) {
+        console.error('[Trim IPC] Failed to save session');
+        return {
+          success: false,
+          error: 'Failed to save session',
+        };
+      }
+
+      return {
+        success: true,
+        clip,
+      };
+    } catch (error) {
+      console.error('[Trim IPC] Error trimming clip:', error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error',
+      };
+    }
+  });
+
+  // reset_trim: Reset clip to full duration
+  ipcMain.handle('reset_trim', async (event, { clipId }: { clipId: string }) => {
+    console.log('[Trim IPC] reset_trim called:', clipId.substring(0, 8));
+
+    try {
+      const session = loadSession();
+
+      if (!session) {
+        console.error('[Trim IPC] No session found');
+        return {
+          success: false,
+          error: 'No session found',
+        };
+      }
+
+      // Find clip in session
+      const clip = session.clips.find(c => c.id === clipId);
+
+      if (!clip) {
+        console.error('[Trim IPC] Clip not found:', clipId);
+        return {
+          success: false,
+          error: `Clip not found: ${clipId}`,
+        };
+      }
+
+      // Reset to full duration
+      clip.inPoint = 0;
+      clip.outPoint = clip.duration;
+
+      console.log('[Trim IPC] Clip trim reset:', {
+        clipId: clipId.substring(0, 8),
+        filename: clip.filename,
+        duration: clip.duration,
+      });
+
+      // Save session state
+      const saved = saveSession(session);
+      if (!saved) {
+        console.error('[Trim IPC] Failed to save session');
+        return {
+          success: false,
+          error: 'Failed to save session',
+        };
+      }
+
+      return {
+        success: true,
+        clip,
+      };
+    } catch (error) {
+      console.error('[Trim IPC] Error resetting trim:', error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error',
+      };
+    }
+  });
+
+  console.log('[Trim IPC] Handlers registered: trim_clip, reset_trim');
+}
