@@ -50,3 +50,14 @@ export interface ThumbnailResponse {
   thumbnail?: string;           // Base64 data URL (e.g., "data:image/jpeg;base64,...")
   error?: string;               // Error message if generation failed
 }
+
+// Library-related IPC types (Story 3: Library View)
+
+export interface CheckFileExistsRequest {
+  filePath: string;             // Absolute path to file to check
+}
+
+export interface CheckFileExistsResponse {
+  exists: boolean;              // True if file exists and is accessible
+  error?: string;               // Error message if file not found or not accessible
+}
