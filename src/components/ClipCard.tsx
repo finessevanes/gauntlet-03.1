@@ -5,9 +5,14 @@
 
 import React from 'react';
 import { Clip } from '../types/session';
+import { BrokenFileIcon } from './BrokenFileIcon';
 
 interface ClipCardProps {
   clip: Clip;
+  onClick?: () => void;
+  onDragStart?: (e: React.DragEvent) => void;
+  isSelected?: boolean;
+  isBroken?: boolean;
 }
 
 // Helper: Format duration in MM:SS
@@ -17,13 +22,60 @@ function formatDuration(seconds: number): string {
   return `${mins}:${secs.toString().padStart(2, '0')}`;
 }
 
-export const ClipCard: React.FC<ClipCardProps> = ({ clip }) => {
+export const ClipCard: React.FC<ClipCardProps> = ({
+  clip,
+  onClick,
+  onDragStart,
+  isSelected = false,
+  isBroken = false
+}) => {
+  const [isHovered, setIsHovered] = React.useState(false);
+
+  const handleClick = () => {
+    if (onClick) {
+      onClick();
+    }
+  };
+
+  const handleDragStart = (e: React.DragEvent) => {
+    if (!isBroken && onDragStart) {
+      onDragStart(e);
+    }
+  };
+
   return (
-    <div style={styles.card}>
+    <div
+      style={{
+        ...styles.card,
+        ...(isSelected && styles.cardSelected),
+        ...(isBroken && styles.cardBroken),
+        ...(isHovered && !isBroken && styles.cardHover),
+        cursor: isBroken ? 'not-allowed' : 'pointer',
+      }}
+      onClick={handleClick}
+      onMouseEnter={() => setIsHovered(true)}
+      onMouseLeave={() => setIsHovered(false)}
+      draggable={!isBroken}
+      onDragStart={handleDragStart}
+    >
       {/* Thumbnail with duration overlay */}
       <div style={styles.thumbnailContainer}>
+        {/* Broken file icon overlay */}
+        {isBroken && (
+          <BrokenFileIcon tooltip={`Source file not found: ${clip.filePath}`} />
+        )}
+
         {clip.thumbnail ? (
-          <img src={clip.thumbnail} alt={clip.filename} style={styles.thumbnail} />
+          <img
+            src={clip.thumbnail}
+            alt={clip.filename}
+            style={styles.thumbnail}
+            onError={(e) => {
+              // Fallback for broken thumbnails
+              const target = e.target as HTMLImageElement;
+              target.style.display = 'none';
+            }}
+          />
         ) : (
           <div style={styles.placeholderThumbnail}>🎥</div>
         )}
@@ -44,7 +96,21 @@ const styles = {
     display: 'flex',
     flexDirection: 'column' as const,
     cursor: 'pointer',
-    transition: 'transform 0.2s',
+    transition: 'all 0.2s ease',
+    borderRadius: '8px',
+    padding: '0',
+  },
+  cardHover: {
+    transform: 'scale(1.02)',
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+  },
+  cardSelected: {
+    outline: '2px solid #4a9eff',
+    outlineOffset: '2px',
+  },
+  cardBroken: {
+    border: '2px solid #ff4444',
+    opacity: 0.7,
   },
   thumbnailContainer: {
     position: 'relative' as const,
