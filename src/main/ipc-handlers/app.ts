@@ -5,8 +5,10 @@
 
 import { ipcMain, app } from 'electron';
 import { validateFFmpeg } from '../services/ffmpeg-validator';
-import { loadSession } from '../services/session-manager';
+import { loadSession, saveSession } from '../services/session-manager';
 import { AppInitResponse, FFmpegValidationResponse } from '../../types/ipc';
+import { initializeSessionCache } from './timeline';
+import { Session } from '../../types/session';
 
 /**
  * Registers all app-related IPC handlers
@@ -36,7 +38,30 @@ export function registerAppHandlers(): void {
       });
 
       // Step 2: Load session
-      const session = loadSession();
+      let session = loadSession();
+
+      // If no session exists, create a default empty session
+      if (!session) {
+        console.log('[IPC] No existing session, creating default session');
+        session = {
+          version: '1.0.0',
+          clips: [],
+          timeline: {
+            clips: [],
+            duration: 0,
+          },
+          zoomLevel: 100,
+          playheadPosition: 0,
+          scrollPosition: 0,
+          lastModified: Date.now(),
+        };
+
+        // Save the default session
+        saveSession(session);
+      }
+
+      // Initialize timeline session cache
+      initializeSessionCache(session);
 
       // Return result
       return {
