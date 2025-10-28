@@ -12,6 +12,8 @@ import {
   FileValidationResponse,
   VideoMetadataResponse,
   ThumbnailResponse,
+  CheckFileExistsRequest,
+  CheckFileExistsResponse,
 } from './types/ipc';
 
 // Expose electron APIs to renderer process
@@ -62,6 +64,18 @@ contextBridge.exposeInMainWorld('electron', {
      */
     generateThumbnail: (filePath: string): Promise<ThumbnailResponse> => {
       return ipcRenderer.invoke('import:generate-thumbnail', { filePath });
+    },
+  },
+
+  /**
+   * Library API (Story 3: Library View)
+   */
+  library: {
+    /**
+     * Check if a file exists at the given path
+     */
+    checkFileExists: (filePath: string): Promise<CheckFileExistsResponse> => {
+      return ipcRenderer.invoke('library:check-file-exists', { filePath } as CheckFileExistsRequest);
     },
   },
 
@@ -129,6 +143,9 @@ declare global {
         validateFile(filePath: string): Promise<FileValidationResponse>;
         getMetadata(filePath: string): Promise<VideoMetadataResponse>;
         generateThumbnail(filePath: string): Promise<ThumbnailResponse>;
+      };
+      library: {
+        checkFileExists(filePath: string): Promise<CheckFileExistsResponse>;
       };
       dragDrop: {
         onDrop(callback: (filePaths: string[]) => void): () => void;
