@@ -66,7 +66,7 @@ Developers and product teams testing desktop media handling capabilities. Post-M
 
 ## Functional Requirements
 
-### 1. Application Launch
+### 1. Application Launch ✅ COMPLETE
 
 **REQ-1.1**: App must launch in under 5 seconds on macOS  
 **REQ-1.2**: FFmpeg binary must be bundled via `ffmpeg-static` npm package (no external dependencies)  
@@ -80,7 +80,8 @@ Developers and product teams testing desktop media handling capabilities. Post-M
 
 ---
 
-### 2. Video Import
+### 2. Video Import ✅ COMPLETE
+
 
 **REQ-2.1**: Support drag & drop of video files into app window  
 **REQ-2.2**: Support file picker via `electron.dialog.showOpenDialog()` filtered to `.mp4` and `.mov` only  
@@ -107,15 +108,15 @@ Developers and product teams testing desktop media handling capabilities. Post-M
 
 ---
 
-### 3. Library View
+### 3. Library View ✅ COMPLETE
 
 **REQ-3.1**: Display all imported clips in a scrollable list/grid  
 **REQ-3.2**: Show for each clip:
   - Thumbnail (first frame)
   - Filename
   - Duration (MM:SS format)
-**REQ-3.3**: Click on clip in Library → plays in preview player  
-**REQ-3.4**: Drag clip from Library to Timeline to add it  
+**REQ-3.3**: Click on clip in Library → plays in preview player
+**REQ-3.4**: Library clips are draggable (drag source) — emit clip data on drag initiation  
 
 **Empty State**:
 - Message: "Drag & drop video files or click Import to get started"
@@ -136,7 +137,7 @@ Developers and product teams testing desktop media handling capabilities. Post-M
 **REQ-4.4**: Timecode display (HH:MM:SS.mmm) above timeline  
 
 **Clip Management**:
-**REQ-4.5**: Drag clips from Library onto Timeline  
+**REQ-4.5**: Timeline accepts dropped clips from Library (drop target) — adds clip to timeline sequence
 **REQ-4.6**: Reorder clips by dragging horizontally  
 **REQ-4.7**: Delete clips (right-click → Delete or Delete key)  
 **REQ-4.8**: Clips snap together (no gaps, no overlaps)  
