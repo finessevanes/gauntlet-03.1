@@ -6,10 +6,21 @@
 export interface Clip {
   id: string;                 // Unique identifier (UUID)
   filePath: string;           // Absolute path to source video file
+  filename: string;           // Display name (extracted from path)
   duration: number;           // Total duration in seconds
   inPoint: number;            // Trim start point in seconds (default: 0)
   outPoint: number;           // Trim end point in seconds (default: duration)
   importedAt: number;         // Timestamp when imported (ms since epoch)
+
+  // Video metadata (from Story 2: Video Import)
+  thumbnail: string;          // Base64 data URL (e.g., "data:image/jpeg;base64,...")
+  resolution: {
+    width: number;            // e.g., 1920
+    height: number;           // e.g., 1080
+  };
+  frameRate: number;          // Frames per second (e.g., 30)
+  codec: string;              // Codec name (e.g., "h264")
+  bitrate?: number;           // Optional: bits per second (e.g., 5000000)
 }
 
 export interface Timeline {
