@@ -8,6 +8,7 @@ export interface ScreenInfo {
   name: string;            // "Display 1", "Built-in Retina", etc.
   resolution: string;      // "2560x1600"
   thumbnail: string;       // Base64 data URL of thumbnail
+  displayId?: string;      // Electron displayId for positioning overlay on correct display
 }
 
 export interface RecordingSession {
@@ -95,5 +96,84 @@ export interface EncodeWebcamRecordingResponse {
   width?: number;
   height?: number;
   thumbnailPath?: string; // Path to thumbnail image (first frame)
+  error?: string;
+}
+
+/**
+ * Picture-in-Picture Recording Types (Story S11)
+ */
+
+export interface PiPRecordingSettings {
+  screenId: string;                              // Selected monitor/window ID from desktopCapturer
+  webcamPosition: 'TL' | 'TR' | 'BL' | 'BR';     // Top-Left, Top-Right, Bottom-Left, Bottom-Right
+  webcamSize: 'small' | 'medium' | 'large';      // 20%, 30%, 40% of screen width
+  webcamShape: 'rectangle' | 'circle';           // Webcam overlay shape
+}
+
+export interface PiPRecordingSession {
+  id: string;                    // Unique recording ID
+  startTime: number;             // Timestamp (ms since epoch)
+  screenFilePath: string;        // Temp file path for screen recording
+  webcamFilePath: string;        // Temp file path for webcam recording
+  settings: PiPRecordingSettings;
+  status: 'recording' | 'stopping' | 'compositing' | 'done' | 'error';
+  errorMessage?: string;
+}
+
+export interface CheckCameraAvailableResponse {
+  available: boolean;
+  reason?: string;  // e.g., "Permission denied" or "Camera in use"
+}
+
+export interface GetPiPSettingsResponse {
+  settings: PiPRecordingSettings;
+  error?: string;
+}
+
+export interface StartPiPRecordingRequest {
+  screenId: string;
+  settings: PiPRecordingSettings;
+}
+
+export interface StartPiPRecordingResponse {
+  success: boolean;
+  recordingId?: string;
+  status?: 'recording';
+  error?: string;
+}
+
+export interface StopPiPRecordingRequest {
+  recordingId: string;
+}
+
+export interface StopPiPRecordingResponse {
+  success: boolean;
+  screenFile?: string;
+  webcamFile?: string;
+  duration?: number;
+  error?: string;
+}
+
+export interface CompositePiPVideosRequest {
+  screenFile: string;
+  webcamFile: string;
+  settings: PiPRecordingSettings;
+  outputPath: string;
+}
+
+export interface CompositePiPVideosResponse {
+  success: boolean;
+  compositeFile?: string;
+  duration?: number;
+  thumbnailPath?: string;
+  error?: string;
+}
+
+export interface SavePiPSettingsRequest {
+  settings: PiPRecordingSettings;
+}
+
+export interface SavePiPSettingsResponse {
+  success: boolean;
   error?: string;
 }
