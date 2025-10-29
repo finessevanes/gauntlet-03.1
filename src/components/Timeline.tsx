@@ -38,9 +38,12 @@ export const Timeline: React.FC = () => {
   // Group clips by track (S12)
   const clipsByTrack = useMemo(() => {
     const grouped = new Map<string, typeof timeline.clips>();
-    timeline.tracks.forEach(track => {
-      grouped.set(track.id, timeline.clips.filter(c => c.trackId === track.id));
-    });
+    // Safety check: ensure tracks exist (migration might not have run yet)
+    if (timeline.tracks && timeline.tracks.length > 0) {
+      timeline.tracks.forEach(track => {
+        grouped.set(track.id, timeline.clips.filter(c => c.trackId === track.id));
+      });
+    }
     return grouped;
   }, [timeline.clips, timeline.tracks]);
 
@@ -585,7 +588,7 @@ export const Timeline: React.FC = () => {
         )}
 
         {/* Timeline Content */}
-        {timeline.tracks.length > 0 && (
+        {timeline.tracks && timeline.tracks.length > 0 && (
           <div
             style={{ ...styles.track, width: `${timelineWidth}px` }}
             onClick={handleTimelineClick}
