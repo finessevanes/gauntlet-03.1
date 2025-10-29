@@ -468,20 +468,20 @@ interface RecordingSession {
 
 ### REQ-5: Recording Process
 
-- [ ] **Happy Path**: Record 10 seconds → stop → file appears in temp directory
+- [] **Happy Path**: Record 10 seconds → stop → file appears in temp directory
 - [ ] **Edge Case**: Record <1 second → stop → produces valid MP4
 - [ ] **Error Handling**: Disk full during recording → error dialog "Insufficient disk space"
 
 ### REQ-6: Library Integration
 
-- [ ] **Happy Path**: Record video → appears in Library with correct duration
-- [ ] **Edge Case**: Record multiple videos (3+) → all appear in Library
+- [x] **Happy Path**: Record video → appears in Library with correct duration
+- [x] **Edge Case**: Record multiple videos (3+) → all appear in Library
 
 ### REQ-7: Stop & Error Handling
 
-- [ ] **Happy Path**: Stop button responsive (<500ms)
-- [ ] **Edge Case**: Stop immediately after starting (<1 second) → produces valid MP4
-- [ ] **Error Handling**: FFmpeg error → dialog shows user-friendly message (not technical jargon)
+- [x] **Happy Path**: Stop button responsive (<500ms)
+- [x] **Edge Case**: Stop immediately after starting (<1 second) → produces valid MP4
+- [x] **Error Handling**: FFmpeg error → dialog shows user-friendly message (not technical jargon)
 
 ### REQ-8: Cross-Platform Support
 
