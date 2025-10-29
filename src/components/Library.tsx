@@ -18,6 +18,8 @@ export const Library: React.FC = () => {
   const selectedClipId = useSessionStore((state) => state.selectedClipId);
   const selectedClipSource = useSessionStore((state) => state.selectedClipSource);
   const setSelectedClip = useSessionStore((state) => state.setSelectedClip);
+  const setPreviewSource = useSessionStore((state) => state.setPreviewSource);
+  const setIsPlaying = useSessionStore((state) => state.setIsPlaying);
   const [brokenFiles, setBrokenFiles] = useState<Set<string>>(new Set());
   const [isCheckingFiles, setIsCheckingFiles] = useState(false);
   const [showClearConfirm, setShowClearConfirm] = useState(false);
@@ -63,9 +65,19 @@ export const Library: React.FC = () => {
   }, [clips]);
 
   const handleClipClick = (clipId: string) => {
+    console.log('[Library] Selected clip for preview', {
+      clipId,
+      previousSelection: selectedClipId,
+      previousSource: selectedClipSource,
+    });
     setSelectedClip(clipId, 'library');
-    // Story 6 (Preview Player) will implement actual preview loading
-    console.log('[Library] Preview clip:', clipId);
+    setIsPlaying(false);
+    setPreviewSource('library', { clipId, resetPlayhead: true });
+    console.log('[Library] Preview source switched to library clip', {
+      clipId,
+      resetPlayhead: true,
+      message: 'Playhead reset to 0',
+    });
   };
 
   const handleClipDragStart = (e: React.DragEvent, clipId: string) => {

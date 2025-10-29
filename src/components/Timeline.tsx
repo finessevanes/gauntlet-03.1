@@ -28,6 +28,10 @@ export const Timeline: React.FC = () => {
   const setZoomLevel = useSessionStore((state) => state.setZoomLevel);
   const updateTimeline = useSessionStore((state) => state.updateTimeline);
   const setSelectedClip = useSessionStore((state) => state.setSelectedClip);
+  const isPlaying = useSessionStore((state) => state.isPlaying);
+  const setIsPlaying = useSessionStore((state) => state.setIsPlaying);
+  const previewSource = useSessionStore((state) => state.previewSource);
+  const setPreviewSource = useSessionStore((state) => state.setPreviewSource);
 
   const [isDraggingOver, setIsDraggingOver] = useState(false);
   const [draggedClipId, setDraggedClipId] = useState<string | null>(null);
@@ -41,7 +45,10 @@ export const Timeline: React.FC = () => {
       newSelection: clipId,
     });
     setSelectedClip(clipId, 'timeline');
-  }, [selectedClipId, setSelectedClip]);
+    if (previewSource !== 'timeline') {
+      setPreviewSource('timeline');
+    }
+  }, [previewSource, selectedClipId, setPreviewSource, setSelectedClip]);
   const [containerWidth, setContainerWidth] = useState(800);
   const [brokenFiles, setBrokenFiles] = useState<Set<string>>(new Set());
 
@@ -300,6 +307,9 @@ export const Timeline: React.FC = () => {
 
   // Handle playhead seek
   const handleSeek = async (time: number) => {
+    if (previewSource !== 'timeline') {
+      setPreviewSource('timeline');
+    }
     setPlayheadPosition(time);
     await window.electron.timeline.setPlayheadPosition(time);
   };
@@ -470,7 +480,22 @@ export const Timeline: React.FC = () => {
     if (e.target === e.currentTarget || e.target === trackRef.current) {
       console.log('[Timeline] Clicked on empty space, deselecting clip');
       setSelectedClip(null, null);
+      if (previewSource !== 'timeline') {
+        setPreviewSource('timeline');
+      }
     }
+  };
+
+  const canPlayTimeline = timeline.clips.length > 0 && timeline.duration > 0;
+
+  const handleTogglePlay = () => {
+    if (!canPlayTimeline) return;
+    if (previewSource !== 'timeline') {
+      setPreviewSource('timeline');
+      setIsPlaying(true);
+      return;
+    }
+    setIsPlaying(!isPlaying);
   };
 
   return (
@@ -481,6 +506,9 @@ export const Timeline: React.FC = () => {
         timelineDuration={timeline.duration}
         zoomLevel={zoomLevel}
         onZoomChange={handleZoomChange}
+        isPlaying={isPlaying && previewSource === 'timeline'}
+        canPlay={canPlayTimeline}
+        onTogglePlay={handleTogglePlay}
       />
 
       {/* Timeline Track */}

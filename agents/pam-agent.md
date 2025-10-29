@@ -72,6 +72,12 @@ Use `agents/prd-template.md` as your guide. Fill out:
 ✅ **Vertical slices**: Each story delivers complete, working functionality
 ✅ **Tasks are small**: Break work into <1 hour chunks with clear checkpoints
 ✅ **Test gates flow from Brenda**: Don't re-reference prd-mvp; trust Brenda's acceptance criteria
+✅ **Technology choices must be explicit and validated**: When multiple implementation approaches exist, you MUST:
+   - State the **required** approach (not "recommended" or "OR")
+   - Validate against performance requirements (e.g., "30fps playback requires native video, NOT frame extraction")
+   - Include risks/constraints for each option (e.g., "FFmpeg frame extraction: too slow for real-time playback")
+   - If uncertain, research reference implementations or ask user for guidance
+   - **Never leave technology choices ambiguous** - Caleb should not have to guess
 
 ---
 
