@@ -7,7 +7,7 @@ import { ipcMain, BrowserWindow } from 'electron';
 import { ChildProcess } from 'child_process';
 import * as fs from 'fs';
 import { spawnFFmpeg, spawnFFprobe, getFFmpegPath } from '../services/ffmpeg-service';
-import { Clip } from '../../types/session';
+import { Clip, Track, TimelineClip } from '../../types/session';
 
 /**
  * Export request from renderer
@@ -15,9 +15,11 @@ import { Clip } from '../../types/session';
 interface ExportRequest {
   outputPath: string;
   timeline: {
-    clips: Clip[];
+    clips: TimelineClip[];  // Timeline clips with trackId
     totalDuration: number;
+    tracks?: Track[];       // Track configuration (S12 - Multi-Track)
   };
+  allClips: Clip[];          // Full clip library for metadata lookup
 }
 
 /**
@@ -90,8 +92,15 @@ async function handleExportVideo(
   try {
     const { outputPath, timeline } = request;
 
+    // Resolve full clip data early for validation
+    const fullClipsForValidation = timeline.clips.map(tc => {
+      const clip = request.allClips.find(c => c.id === tc.clipId);
+      if (!clip) throw new Error(`Clip not found in library: ${tc.clipId}`);
+      return clip;
+    });
+
     // Validate timeline and source files
-    const validation = await validateTimeline(timeline.clips);
+    const validation = await validateTimeline(fullClipsForValidation);
     if (!validation.valid) {
       return {
         success: false,
@@ -99,10 +108,21 @@ async function handleExportVideo(
       };
     }
 
+    // Multi-track validation (S12)
+    if (timeline.tracks && timeline.tracks.length > 0) {
+      const visibleTracks = timeline.tracks.filter(t => t.visible);
+      if (visibleTracks.length === 0) {
+        return {
+          success: false,
+          errorMessage: 'Cannot export: All tracks are hidden. Please make at least one track visible.',
+        };
+      }
+    }
+
     // Probe all source files in parallel to get metadata
     const probeResults: VideoProbeResult[] = [];
     try {
-      const probePromises = timeline.clips.map(clip =>
+      const probePromises = fullClipsForValidation.map(clip =>
         probeSourceFile(clip.filePath).catch(error => ({
           error: true,
           clip,
@@ -131,13 +151,31 @@ async function handleExportVideo(
     // Determine output resolution (max of all clips, capped at 1080p)
     const outputResolution = determineOutputResolution(probeResults);
 
+    // Resolve full clip data from timeline clips
+    const fullClips = timeline.clips.map(tc => {
+      const clip = request.allClips.find(c => c.id === tc.clipId);
+      if (!clip) throw new Error(`Clip not found: ${tc.clipId}`);
+      return { ...clip, trackId: tc.trackId }; // Add trackId to clip
+    });
+
+    // Check if this is a multi-track export (S12)
+    const isMultiTrack = timeline.tracks && timeline.tracks.length > 1;
+
     // Build FFmpeg command
-    const ffmpegArgs = buildFFmpegCommand(
-      timeline.clips,
-      outputPath,
-      outputResolution,
-      probeResults
-    );
+    const ffmpegArgs = isMultiTrack
+      ? buildMultiTrackFFmpegCommand(
+          fullClips,
+          timeline.tracks!,
+          outputPath,
+          outputResolution,
+          probeResults
+        )
+      : buildFFmpegCommand(
+          fullClips,
+          outputPath,
+          outputResolution,
+          probeResults
+        );
 
     // Log command for debugging
     console.log('[Export] FFmpeg command:', getFFmpegPath(), ffmpegArgs.join(' '));
@@ -370,6 +408,188 @@ function buildFFmpegCommand(
 
   // Output path
   args.push(outputPath);
+
+  return args;
+}
+
+/**
+ * Build FFmpeg command for multi-track composition (S12)
+ * Creates layered video with overlay filters and mixed audio
+ */
+function buildMultiTrackFFmpegCommand(
+  clips: (Clip & { trackId?: string })[],
+  tracks: Track[],
+  outputPath: string,
+  outputResolution: { width: number; height: number },
+  probeResults: VideoProbeResult[]
+): string[] {
+  const args: string[] = [];
+
+  // Sort tracks by zIndex (bottom to top for layering)
+  const sortedTracks = [...tracks].sort((a, b) => a.zIndex - b.zIndex);
+
+  // Filter visible tracks only
+  const visibleTracks = sortedTracks.filter(t => t.visible);
+
+  console.log('[Export] Multi-track export:', {
+    totalTracks: tracks.length,
+    visibleTracks: visibleTracks.length,
+    clipCount: clips.length,
+  });
+
+  // Group clips by track
+  const clipsByTrack = new Map<string, (Clip & { trackId?: string })[]>();
+  visibleTracks.forEach(track => {
+    clipsByTrack.set(track.id, clips.filter(c => c.trackId === track.id));
+  });
+
+  // Add input files (all clips)
+  for (const clip of clips) {
+    args.push('-i', clip.filePath);
+  }
+
+  // Build filter_complex
+  const filterParts: string[] = [];
+
+  // Process each track: concat clips within track, then prepare for overlay
+  const trackVideoOutputs: string[] = [];
+  const trackAudioOutputs: string[] = [];
+
+  visibleTracks.forEach((track, trackIndex) => {
+    const trackClips = clipsByTrack.get(track.id) || [];
+
+    if (trackClips.length === 0) {
+      // Empty track: create blank video/audio
+      filterParts.push(`color=c=black:s=${outputResolution.width}x${outputResolution.height}:d=0.1[vtrack${trackIndex}]`);
+      filterParts.push(`anullsrc=d=0.1[atrack${trackIndex}]`);
+      trackVideoOutputs.push(`[vtrack${trackIndex}]`);
+      if (!track.muted) {
+        trackAudioOutputs.push(`[atrack${trackIndex}]`);
+      }
+      return;
+    }
+
+    // Process clips on this track
+    const videoLabels: string[] = [];
+    const audioLabels: string[] = [];
+
+    trackClips.forEach((clip, clipIndex) => {
+      const globalClipIndex = clips.indexOf(clip);
+      const probe = probeResults[globalClipIndex];
+
+      // Video processing
+      let videoFilter = `[${globalClipIndex}:v]trim=start=${clip.inPoint}:end=${clip.outPoint},setpts=PTS-STARTPTS`;
+
+      // Scale if needed
+      const needsScaling = probe.width !== outputResolution.width || probe.height !== outputResolution.height;
+      if (needsScaling) {
+        videoFilter += `,scale=${outputResolution.width}:${outputResolution.height}:force_original_aspect_ratio=decrease`;
+        videoFilter += `,pad=${outputResolution.width}:${outputResolution.height}:(ow-iw)/2:(oh-ih)/2`;
+      }
+
+      videoFilter += `,setsar=1`;
+
+      // FPS normalization
+      const needsFpsConversion = Math.abs(probe.fps - 30) > 0.1;
+      if (needsFpsConversion) {
+        videoFilter += `,fps=30`;
+      }
+
+      videoFilter += `[vt${trackIndex}c${clipIndex}]`;
+      filterParts.push(videoFilter);
+      videoLabels.push(`[vt${trackIndex}c${clipIndex}]`);
+
+      // Audio processing
+      const audioFilter = `[${globalClipIndex}:a]atrim=start=${clip.inPoint}:end=${clip.outPoint},asetpts=PTS-STARTPTS[at${trackIndex}c${clipIndex}]`;
+      filterParts.push(audioFilter);
+      audioLabels.push(`[at${trackIndex}c${clipIndex}]`);
+    });
+
+    // Concat clips within this track
+    if (trackClips.length > 1) {
+      const concatInputs = [];
+      for (let i = 0; i < trackClips.length; i++) {
+        concatInputs.push(videoLabels[i], audioLabels[i]);
+      }
+      filterParts.push(`${concatInputs.join('')}concat=n=${trackClips.length}:v=1:a=1[vtrack${trackIndex}][atrack${trackIndex}]`);
+    } else {
+      // Single clip: rename labels
+      filterParts.push(`${videoLabels[0]}copy[vtrack${trackIndex}]`);
+      filterParts.push(`${audioLabels[0]}copy[atrack${trackIndex}]`);
+    }
+
+    // Apply track opacity if needed
+    if (track.opacity < 1.0) {
+      filterParts.push(`[vtrack${trackIndex}]format=yuva420p,colorchannelmixer=aa=${track.opacity}[vtrack${trackIndex}_alpha]`);
+      trackVideoOutputs.push(`[vtrack${trackIndex}_alpha]`);
+    } else {
+      trackVideoOutputs.push(`[vtrack${trackIndex}]`);
+    }
+
+    // Collect audio if not muted
+    if (!track.muted) {
+      trackAudioOutputs.push(`[atrack${trackIndex}]`);
+    }
+  });
+
+  // Overlay video tracks (bottom to top)
+  if (trackVideoOutputs.length > 1) {
+    let currentBase = trackVideoOutputs[0];
+    for (let i = 1; i < trackVideoOutputs.length; i++) {
+      const overlayLabel = i === trackVideoOutputs.length - 1 ? '[outv]' : `[overlay${i}]`;
+      filterParts.push(`${currentBase}${trackVideoOutputs[i]}overlay=0:0${overlayLabel}`);
+      currentBase = overlayLabel;
+    }
+  } else {
+    // Single track: just copy
+    filterParts.push(`${trackVideoOutputs[0]}copy[outv]`);
+  }
+
+  // Mix audio tracks
+  const soloTrack = visibleTracks.find(t => t.solo);
+  let finalAudioOutputs = trackAudioOutputs;
+
+  if (soloTrack) {
+    // Solo mode: only use solo track audio
+    const soloIndex = visibleTracks.indexOf(soloTrack);
+    finalAudioOutputs = [`[atrack${soloIndex}]`];
+  }
+
+  if (finalAudioOutputs.length === 0) {
+    // No audio: create silent audio
+    filterParts.push(`anullsrc=channel_layout=stereo:sample_rate=44100[outa]`);
+  } else if (finalAudioOutputs.length === 1) {
+    // Single audio track
+    filterParts.push(`${finalAudioOutputs[0]}copy[outa]`);
+  } else {
+    // Mix multiple audio tracks
+    filterParts.push(`${finalAudioOutputs.join('')}amix=inputs=${finalAudioOutputs.length}:duration=longest[outa]`);
+  }
+
+  // Combine all filter parts
+  const filterComplex = filterParts.join(';');
+  args.push('-filter_complex', filterComplex);
+
+  // Map output streams
+  args.push('-map', '[outv]', '-map', '[outa]');
+
+  // Codec settings
+  args.push(
+    '-c:v', 'libx264',
+    '-preset', 'fast',
+    '-crf', '23',
+    '-r', '30',
+    '-c:a', 'aac',
+    '-b:a', '128k',
+  );
+
+  // Overwrite output file
+  args.push('-y');
+
+  // Output path
+  args.push(outputPath);
+
+  console.log('[Export] Multi-track filter_complex built:', filterComplex.substring(0, 200) + '...');
 
   return args;
 }

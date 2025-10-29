@@ -4,6 +4,7 @@
  */
 
 import React from 'react';
+import { Track } from '../types/session';
 
 interface ExportModalProps {
   isOpen: boolean;
@@ -15,6 +16,7 @@ interface ExportModalProps {
   };
   status: 'validating' | 'exporting' | 'error' | 'complete';
   outputPath?: string; // Path to the exported file (shown when complete)
+  tracks?: Track[]; // Track status for multi-track export (S12)
 }
 
 /**
@@ -41,6 +43,7 @@ export default function ExportModal({
   progress,
   status,
   outputPath,
+  tracks,
 }: ExportModalProps): JSX.Element | null {
   if (!isOpen) return null;
 
@@ -56,11 +59,35 @@ export default function ExportModal({
     title = 'Export Complete';
   }
 
+  // Check if all tracks are hidden (S12)
+  const allTracksHidden = tracks && tracks.length > 0 && tracks.every(t => !t.visible);
+
   return (
     <div style={styles.overlay}>
       <div style={styles.modal}>
         {/* Title */}
         <h2 style={styles.title}>{title}</h2>
+
+        {/* Multi-Track Status (S12 - show before export starts) */}
+        {tracks && tracks.length > 1 && (status === 'validating' || status === 'exporting') && (
+          <div style={styles.trackStatusContainer}>
+            <h3 style={styles.trackStatusTitle}>Tracks:</h3>
+            {tracks.map(track => (
+              <div key={track.id} style={styles.trackStatusRow}>
+                <span style={styles.trackName}>{track.name}</span>
+                <span style={styles.trackIcons}>
+                  {track.visible ? '👁' : '👁‍🗨'}
+                  {track.muted ? ' 🔇' : ' 🔊'}
+                  {track.solo ? ' ⭐' : ''}
+                  {track.opacity < 1.0 ? ` ${Math.round(track.opacity * 100)}%` : ''}
+                </span>
+              </div>
+            ))}
+            {allTracksHidden && (
+              <p style={styles.warningText}>⚠️ Warning: All tracks are hidden!</p>
+            )}
+          </div>
+        )}
 
         {/* Progress Bar (only show if not error) */}
         {status !== 'error' && (
@@ -207,6 +234,43 @@ const styles: { [key: string]: React.CSSProperties } = {
     color: '#4a9eff',
     wordBreak: 'break-all',
     fontFamily: 'monospace',
+  },
+  trackStatusContainer: {
+    backgroundColor: '#2a2a2a',
+    padding: '16px',
+    borderRadius: '6px',
+    border: '1px solid #3a3a3a',
+    marginBottom: '8px',
+  },
+  trackStatusTitle: {
+    margin: '0 0 12px 0',
+    fontSize: '14px',
+    color: '#b0b0b0',
+    fontWeight: 600,
+    textTransform: 'uppercase',
+  },
+  trackStatusRow: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: '8px 0',
+    borderBottom: '1px solid #3a3a3a',
+  },
+  trackName: {
+    fontSize: '14px',
+    color: '#ffffff',
+    fontWeight: 500,
+  },
+  trackIcons: {
+    fontSize: '13px',
+    color: '#b0b0b0',
+  },
+  warningText: {
+    margin: '12px 0 0 0',
+    fontSize: '14px',
+    color: '#ff9800',
+    fontWeight: 600,
+    textAlign: 'center',
   },
   cancelButton: {
     padding: '12px 24px',

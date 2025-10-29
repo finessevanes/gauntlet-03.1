@@ -222,7 +222,11 @@ export const MainLayout: React.FC = () => {
 
       const exportResult = await window.electron.invoke('export-video', {
         outputPath,
-        timeline: timelineData,
+        timeline: {
+          ...timelineData,
+          tracks: timeline.tracks, // Include tracks for multi-track export (S12)
+        },
+        allClips: clips, // Include full clip library for metadata lookup
       });
 
       console.log('[Export] Export result:', exportResult);
@@ -358,6 +362,7 @@ export const MainLayout: React.FC = () => {
           progress={exportProgress}
           status={exportStatus}
           outputPath={exportOutputPath}
+          tracks={timeline.tracks} // Pass tracks for multi-track status (S12)
         />
 
         {/* Global Permission Modal */}
