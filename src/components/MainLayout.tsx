@@ -7,6 +7,8 @@ import React, { useEffect, useState } from 'react';
 import { ImportButton } from './ImportButton';
 import { RecordScreenButton } from './RecordScreenButton';
 import { RecordScreenDialog } from './RecordScreenDialog';
+import { RecordWebcamButton } from './RecordWebcamButton';
+import { WebcamRecordingModal } from './WebcamRecordingModal';
 import { RecordingIndicator } from './RecordingIndicator';
 import { DragDropZone } from './DragDropZone';
 import { Library } from './Library';
@@ -26,6 +28,9 @@ export const MainLayout: React.FC = () => {
   const { isRecording, startRecording, stopRecording, cancelRecording } = useScreenRecorder();
   const [isRecordDialogOpen, setIsRecordDialogOpen] = useState(false);
   const [isStopping, setIsStopping] = useState(false);
+
+  // Webcam recording state (Story S10)
+  const [isWebcamModalOpen, setIsWebcamModalOpen] = useState(false);
 
   // Export state
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
@@ -89,6 +94,29 @@ export const MainLayout: React.FC = () => {
       }
     } finally {
       setIsStopping(false);
+    }
+  };
+
+  /**
+   * Handle Record Webcam button click
+   */
+  const handleWebcamClick = () => {
+    setIsWebcamModalOpen(true);
+  };
+
+  /**
+   * Handle webcam recording complete
+   */
+  const handleWebcamRecordingComplete = async (filePath: string) => {
+    console.log('[MainLayout] Webcam recording complete:', filePath);
+
+    // Auto-import the recorded video into the library
+    try {
+      console.log('[MainLayout] Auto-importing webcam recording...');
+      await importVideos([filePath]);
+      console.log('[MainLayout] Webcam recording imported successfully');
+    } catch (error) {
+      console.error('[MainLayout] Failed to import webcam recording:', error);
     }
   };
 
@@ -260,6 +288,13 @@ export const MainLayout: React.FC = () => {
           onStartRecording={handleStartRecording}
         />
 
+        {/* Webcam Recording Modal (Story S10) */}
+        <WebcamRecordingModal
+          isOpen={isWebcamModalOpen}
+          onClose={() => setIsWebcamModalOpen(false)}
+          onRecordingComplete={handleWebcamRecordingComplete}
+        />
+
         {/* Error Modal */}
         {importError && (
           <ErrorModal
@@ -293,6 +328,7 @@ export const MainLayout: React.FC = () => {
               <span>Library</span>
               <div style={styles.headerButtons}>
                 <RecordScreenButton onClick={handleRecordClick} disabled={isRecording} />
+                <RecordWebcamButton onClick={handleWebcamClick} disabled={isRecording} />
                 <ImportButton onClick={openFilePicker} disabled={importProgress.length > 0 || isRecording} />
               </div>
             </div>
