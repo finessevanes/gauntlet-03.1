@@ -4,8 +4,6 @@
  */
 
 import React from 'react';
-import { useSessionStore } from '../store/sessionStore';
-import { EmptyState } from './EmptyState';
 import { ImportButton } from './ImportButton';
 import { DragDropZone } from './DragDropZone';
 import { Library } from './Library';
@@ -13,10 +11,9 @@ import { ImportProgressModal } from './ImportProgressModal';
 import { ErrorModal } from './ErrorModal';
 import { useImport } from '../hooks/useImport';
 import { Timeline } from './Timeline';
+import { PreviewPlayer } from './PreviewPlayer';
 
 export const MainLayout: React.FC = () => {
-  const clips = useSessionStore((state) => state.clips);
-  const timeline = useSessionStore((state) => state.timeline);
   const { importProgress, importError, importVideos, openFilePicker, clearImportProgress, clearImportError } = useImport();
 
   return (
@@ -54,10 +51,7 @@ export const MainLayout: React.FC = () => {
           <div style={styles.preview}>
             <div style={styles.panelHeader}>Preview</div>
             <div style={styles.previewContent}>
-              <div style={styles.previewPlaceholder}>
-                <span style={styles.previewIcon}>▶️</span>
-                <p style={styles.previewText}>Preview Player (Story 6)</p>
-              </div>
+              <PreviewPlayer />
             </div>
           </div>
         </div>
@@ -102,26 +96,9 @@ const styles = {
   previewContent: {
     flex: 1,
     display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
     position: 'relative' as const,
-  },
-  previewPlaceholder: {
-    display: 'flex',
-    flexDirection: 'column' as const,
-    alignItems: 'center',
-    justifyContent: 'center',
-    color: '#666',
-  },
-  previewIcon: {
-    fontSize: '64px',
-    marginBottom: '16px',
-    opacity: 0.3,
-  },
-  previewText: {
-    fontSize: '16px',
-    margin: 0,
-    opacity: 0.5,
+    padding: '16px',
+    backgroundColor: '#101010',
   },
   timeline: {
     height: '40%',
