@@ -30,14 +30,27 @@ export interface Clip {
   isPiPRecording?: boolean;         // Flag for PiP composite videos
 }
 
+export interface Track {
+  id: string;                 // UUID
+  name: string;               // "Video", "Overlay", "Graphics", etc.
+  muted: boolean;             // Audio disabled
+  solo: boolean;              // Only this track's audio plays
+  visible: boolean;           // Video visible (eye icon)
+  opacity: number;            // 0.0 to 1.0
+  zIndex: number;             // Layer order (0 = bottom, N-1 = top)
+  createdAt: number;          // Timestamp
+}
+
 export interface TimelineClip {
   instanceId: string;         // Unique ID for this timeline instance (UUID)
   clipId: string;             // Reference to the library clip
+  trackId?: string;           // Which track this clip belongs to (optional for backwards compat)
 }
 
 export interface Timeline {
   clips: TimelineClip[];      // Array of timeline clip instances in sequence
   duration: number;           // Total timeline duration (sum of trimmed clips)
+  tracks: Track[];            // Array of tracks (ordered by zIndex)
 }
 
 export interface Session {

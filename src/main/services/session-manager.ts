@@ -6,7 +6,7 @@
 import { app } from 'electron';
 import { readFileSync, writeFileSync, existsSync } from 'fs';
 import { join } from 'path';
-import { Session, Clip, Timeline } from '../../types/session';
+import { Session, Clip, Timeline, Track } from '../../types/session';
 
 /**
  * Gets the path to the session file in userData directory
@@ -42,9 +42,38 @@ export function loadSession(): Session | null {
       return null;
     }
 
+    // Migration: Add default track if missing (S12 - Advanced Timeline)
+    if (!sessionData.timeline.tracks || sessionData.timeline.tracks.length === 0) {
+      console.log('[SessionManager] Migrating session: adding default track');
+      sessionData.timeline.tracks = [{
+        id: `track-${Date.now()}-default`,
+        name: 'Video',
+        muted: false,
+        solo: false,
+        visible: true,
+        opacity: 1.0,
+        zIndex: 0,
+        createdAt: Date.now(),
+      }];
+
+      // Assign all existing timeline clips to default track
+      if (sessionData.timeline.clips && sessionData.timeline.clips.length > 0) {
+        sessionData.timeline.clips.forEach((timelineClip: any) => {
+          if (!timelineClip.trackId) {
+            timelineClip.trackId = sessionData.timeline.tracks[0].id;
+          }
+        });
+      }
+
+      // Save migrated session
+      writeFileSync(sessionPath, JSON.stringify(sessionData, null, 2), 'utf-8');
+      console.log('[SessionManager] Migration complete: default track created');
+    }
+
     console.log('[SessionManager] Session loaded successfully:', {
       clips: sessionData.clips.length,
       timelineClips: sessionData.timeline.clips.length,
+      tracks: sessionData.timeline.tracks?.length || 0,
     });
 
     return sessionData as Session;
