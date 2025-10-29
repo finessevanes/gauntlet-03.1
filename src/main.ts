@@ -12,6 +12,10 @@ if (started) {
   app.quit();
 }
 
+// Allow renderer process to load local file:// resources (needed for preview player)
+app.commandLine.appendSwitch('allow-file-access-from-files');
+app.commandLine.appendSwitch('allow-file-access-from-file-urls');
+
 const createWindow = () => {
   // Create the browser window.
   const mainWindow = new BrowserWindow({
@@ -22,6 +26,9 @@ const createWindow = () => {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
+      webSecurity: false,
+      allowRunningInsecureContent: true,
+      allowFileAccess: true,
     },
   });
 
