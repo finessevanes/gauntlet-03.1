@@ -280,7 +280,6 @@ const styles = {
     flex: 1,
     display: 'flex',
     position: 'relative' as const,
-    padding: '16px',
     backgroundColor: '#101010',
   },
   timeline: {
