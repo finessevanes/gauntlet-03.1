@@ -3,13 +3,15 @@
  * Main timeline container with clip track, playhead, controls, drop zone
  */
 
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { useSessionStore } from '../store/sessionStore';
 import { TimelineControls } from './TimelineControls';
 import { TimelineRuler } from './TimelineRuler';
 import { TimelinePlayhead } from './TimelinePlayhead';
 import { TimelineClip } from './TimelineClip';
 import { TrimTooltip } from './TrimTooltip';
+import { TrackManager } from './TrackManager';
+import { TimelineLane } from './TimelineLane';
 import { useTrimDrag } from '../hooks/useTrimDrag';
 import { calculateAutoFitZoom, getPixelsPerSecond, logTimelineClipDurations } from '../utils/timecode';
 
@@ -32,6 +34,15 @@ export const Timeline: React.FC = () => {
   const setIsPlaying = useSessionStore((state) => state.setIsPlaying);
   const previewSource = useSessionStore((state) => state.previewSource);
   const setPreviewSource = useSessionStore((state) => state.setPreviewSource);
+
+  // Group clips by track (S12)
+  const clipsByTrack = useMemo(() => {
+    const grouped = new Map<string, typeof timeline.clips>();
+    timeline.tracks.forEach(track => {
+      grouped.set(track.id, timeline.clips.filter(c => c.trackId === track.id));
+    });
+    return grouped;
+  }, [timeline.clips, timeline.tracks]);
 
   const [isDraggingOver, setIsDraggingOver] = useState(false);
   const [draggedClipId, setDraggedClipId] = useState<string | null>(null);
@@ -289,10 +300,10 @@ export const Timeline: React.FC = () => {
       if (result.success) {
         // Fetch updated timeline state
         const state = await window.electron.timeline.getTimelineState();
-        updateTimeline({ clips: state.clips, duration: state.duration });
+        updateTimeline({ clips: state.clips, duration: state.duration, tracks: timeline.tracks });
         console.log('[Timeline] Clip inserted successfully at position', position, ', timeline now has', state.clips.length, 'clips');
         // Log all clip durations after adding
-        logTimelineClipDurations(clips, { clips: state.clips, duration: state.duration });
+        logTimelineClipDurations(clips, { clips: state.clips, duration: state.duration, tracks: timeline.tracks });
       } else {
         console.error('[Timeline] Failed to insert clip:', result.error);
       }
@@ -303,6 +314,26 @@ export const Timeline: React.FC = () => {
       setTimeout(() => {
         (window as any)._processingDrop = false;
       }, 100);
+    }
+  };
+
+  // Handle moving clip to different track (S12)
+  const handleClipDropOnTrack = async (clipId: string, trackId: string, position: number) => {
+    console.log('[Timeline] Moving clip to track:', { clipId, trackId, position });
+
+    try {
+      const result = await window.electron.timeline.moveClipToTrack(clipId, trackId);
+
+      if (result.success) {
+        // Fetch updated timeline state
+        const state = await window.electron.timeline.getTimelineState();
+        updateTimeline({ clips: state.clips, duration: state.duration, tracks: timeline.tracks });
+        console.log('[Timeline] Clip moved to track successfully');
+      } else {
+        console.error('[Timeline] Failed to move clip:', result.error);
+      }
+    } catch (error) {
+      console.error('[Timeline] Error moving clip:', error);
     }
   };
 
@@ -524,15 +555,20 @@ export const Timeline: React.FC = () => {
         onTogglePlay={handleTogglePlay}
       />
 
-      {/* Timeline Track */}
-      <div
-        ref={trackRef}
-        style={styles.trackContainer}
-        onDragOver={handleDragOver}
-        onDragLeave={handleDragLeave}
-        onDrop={handleDrop}
-        onClick={handleTimelineClick}
-      >
+      {/* Main Timeline Area: TrackManager + Timeline Content */}
+      <div style={styles.timelineMain}>
+        {/* Track Manager Sidebar */}
+        <TrackManager />
+
+        {/* Timeline Track */}
+        <div
+          ref={trackRef}
+          style={styles.trackContainer}
+          onDragOver={handleDragOver}
+          onDragLeave={handleDragLeave}
+          onDrop={handleDrop}
+          onClick={handleTimelineClick}
+        >
         {/* Empty State */}
         {timeline.clips.length === 0 && (
           <div style={{ ...styles.emptyState, opacity: isDraggingOver ? 0.3 : 1 }}>
@@ -549,7 +585,7 @@ export const Timeline: React.FC = () => {
         )}
 
         {/* Timeline Content */}
-        {timeline.clips.length > 0 && (
+        {timeline.tracks.length > 0 && (
           <div
             style={{ ...styles.track, width: `${timelineWidth}px` }}
             onClick={handleTimelineClick}
@@ -562,6 +598,87 @@ export const Timeline: React.FC = () => {
               timelineWidth={timelineWidth}
               padding={TIMELINE_PADDING}
             />
+
+            {/* Multi-Track Lanes (S12) */}
+            {timeline.tracks.sort((a, b) => a.zIndex - b.zIndex).map((track) => {
+              const trackClips = clipsByTrack.get(track.id) || [];
+
+              return (
+                <TimelineLane
+                  key={track.id}
+                  track={track}
+                  clips={trackClips.map(tc => clips.find(c => c.id === tc.clipId)!).filter(Boolean)}
+                  zoomLevel={zoomLevel}
+                  onClipDrop={handleClipDropOnTrack}
+                  onClipDragStart={handleClipDragStart}
+                  onClipSelect={handleClipSelect}
+                >
+                  {/* Render clips for this track */}
+                  {trackClips.map((timelineClip, index) => {
+                    const clip = clips.find((c) => c.id === timelineClip.clipId);
+                    if (!clip) return null;
+
+                    // Check if this clip is being trimmed and overlaps with any other clip
+                    const isBeingTrimmed = trimDrag.dragging !== null && trimDrag.dragging.clipId === clip.id;
+                    let isTrimmedClipOverlapping = false;
+
+                    if (isBeingTrimmed && trimDrag.draggedInPoint !== null && trimDrag.draggedOutPoint !== null) {
+                      // Calculate the current dragged clip's range on the timeline
+                      const draggedClipStart = startTimes[timelineClip.instanceId] || 0;
+                      const draggedClipEnd = draggedClipStart + (trimDrag.draggedOutPoint - trimDrag.draggedInPoint);
+
+                      // Check if it overlaps with any other clip on the same track
+                      for (let i = 0; i < trackClips.length; i++) {
+                        if (i === index) continue; // Skip itself
+
+                        const otherTimelineClip = trackClips[i];
+                        const otherClip = clips.find((c) => c.id === otherTimelineClip.clipId);
+                        if (!otherClip) continue;
+
+                        const otherClipStart = startTimes[otherTimelineClip.instanceId] || 0;
+                        const otherClipEnd = otherClipStart + (otherClip.outPoint - otherClip.inPoint);
+
+                        // Check for overlap: clip1.start < clip2.end AND clip1.end > clip2.start
+                        if (draggedClipStart < otherClipEnd && draggedClipEnd > otherClipStart) {
+                          isTrimmedClipOverlapping = true;
+                          break;
+                        }
+                      }
+                    }
+
+                    return (
+                      <TimelineClip
+                        key={timelineClip.instanceId}
+                        clip={clip}
+                        instanceId={timelineClip.instanceId}
+                        index={index}
+                        zoomLevel={zoomLevel}
+                        startTime={startTimes[timelineClip.instanceId] || 0}
+                        padding={TIMELINE_PADDING}
+                        onReorder={handleReorder}
+                        onDelete={handleDelete}
+                        onInsertLibraryClip={handleInsertLibraryClip}
+                        isSelected={selectedClipId === timelineClip.instanceId && selectedClipSource === 'timeline'}
+                        onSelect={handleClipSelect}
+                        isBroken={brokenFiles.has(timelineClip.instanceId)}
+                        isDragging={draggedClipId === timelineClip.instanceId}
+                        onDragStart={handleClipDragStart}
+                        onDragEnd={handleClipDragEnd}
+                        onDragEnter={handleClipDragEnter}
+                        draggedClipIndex={draggedClipId ? timeline.clips.findIndex(tc => tc.instanceId === draggedClipId) : null}
+                        hoveredEdge={hoveredEdge}
+                        onEdgeHoverChange={handleEdgeHoverChange}
+                        onTrimStart={handleTrimStart}
+                        isTrimming={trimDrag.dragging !== null && trimDrag.dragging.clipId === clip.id}
+                        draggedInPoint={trimDrag.dragging?.clipId === clip.id ? trimDrag.draggedInPoint : null}
+                        draggedOutPoint={trimDrag.dragging?.clipId === clip.id ? trimDrag.draggedOutPoint : null}
+                        isTrimmedClipOverlapping={isTrimmedClipOverlapping}
+                      />
+                    );
+                  })}
+                </TimelineLane>
+              );
+            })}
 
             {/* Drop Indicator - Render once at the calculated position */}
             {dropTargetIndex !== null && (
@@ -600,70 +717,6 @@ export const Timeline: React.FC = () => {
               />
             )}
 
-            {/* Clips */}
-            {timeline.clips.map((timelineClip, index) => {
-              const clip = clips.find((c) => c.id === timelineClip.clipId);
-              if (!clip) return null;
-
-              // Check if this clip is being trimmed and overlaps with any other clip
-              const isBeingTrimmed = trimDrag.dragging !== null && trimDrag.dragging.clipId === clip.id;
-              let isTrimmedClipOverlapping = false;
-
-              if (isBeingTrimmed && trimDrag.draggedInPoint !== null && trimDrag.draggedOutPoint !== null) {
-                // Calculate the current dragged clip's range on the timeline
-                const draggedClipStart = startTimes[timelineClip.instanceId] || 0;
-                const draggedClipEnd = draggedClipStart + (trimDrag.draggedOutPoint - trimDrag.draggedInPoint);
-
-                // Check if it overlaps with any other clip
-                for (let i = 0; i < timeline.clips.length; i++) {
-                  if (i === index) continue; // Skip itself
-
-                  const otherTimelineClip = timeline.clips[i];
-                  const otherClip = clips.find((c) => c.id === otherTimelineClip.clipId);
-                  if (!otherClip) continue;
-
-                  const otherClipStart = startTimes[otherTimelineClip.instanceId] || 0;
-                  const otherClipEnd = otherClipStart + (otherClip.outPoint - otherClip.inPoint);
-
-                  // Check for overlap: clip1.start < clip2.end AND clip1.end > clip2.start
-                  if (draggedClipStart < otherClipEnd && draggedClipEnd > otherClipStart) {
-                    isTrimmedClipOverlapping = true;
-                    break;
-                  }
-                }
-              }
-
-              return (
-                <TimelineClip
-                  key={timelineClip.instanceId}
-                  clip={clip}
-                  instanceId={timelineClip.instanceId}
-                  index={index}
-                  zoomLevel={zoomLevel}
-                  startTime={startTimes[timelineClip.instanceId] || 0}
-                  padding={TIMELINE_PADDING}
-                  onReorder={handleReorder}
-                  onDelete={handleDelete}
-                  onInsertLibraryClip={handleInsertLibraryClip}
-                  isSelected={selectedClipId === timelineClip.instanceId && selectedClipSource === 'timeline'}
-                  onSelect={handleClipSelect}
-                  isBroken={brokenFiles.has(timelineClip.instanceId)}
-                  isDragging={draggedClipId === timelineClip.instanceId}
-                  onDragStart={handleClipDragStart}
-                  onDragEnd={handleClipDragEnd}
-                  onDragEnter={handleClipDragEnter}
-                  draggedClipIndex={draggedClipId ? timeline.clips.findIndex(tc => tc.instanceId === draggedClipId) : null}
-                  hoveredEdge={hoveredEdge}
-                  onEdgeHoverChange={handleEdgeHoverChange}
-                  onTrimStart={handleTrimStart}
-                  isTrimming={trimDrag.dragging !== null && trimDrag.dragging.clipId === clip.id}
-                  draggedInPoint={trimDrag.dragging?.clipId === clip.id ? trimDrag.draggedInPoint : null}
-                  draggedOutPoint={trimDrag.dragging?.clipId === clip.id ? trimDrag.draggedOutPoint : null}
-                  isTrimmedClipOverlapping={isTrimmedClipOverlapping}
-                />
-              );
-            })}
-
             {/* Playhead */}
             <TimelinePlayhead
               playheadPosition={playheadPosition}
@@ -674,6 +727,7 @@ export const Timeline: React.FC = () => {
             />
           </div>
         )}
+        </div>
       </div>
 
       {/* Trim Tooltip (Story 5) */}
@@ -708,10 +762,15 @@ const styles = {
     height: '100%',
     backgroundColor: '#1a1a1a',
   },
+  timelineMain: {
+    display: 'flex',
+    flex: 1,
+    overflow: 'hidden',
+  } as React.CSSProperties,
   trackContainer: {
     flex: 1,
     overflowX: 'auto' as const,
-    overflowY: 'hidden' as const,
+    overflowY: 'auto' as const,
     position: 'relative' as const,
     backgroundColor: '#1a1a1a',
   },
