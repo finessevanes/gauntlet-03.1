@@ -116,5 +116,26 @@ export function registerAppHandlers(): void {
     return result;
   });
 
+  // Handler: app:get-temp-path
+  // Returns path to temp directory with optional filename
+  ipcMain.handle('app:get-temp-path', async (event, filename?: string): Promise<string> => {
+    const tempDir = app.getPath('temp');
+    if (filename) {
+      return `${tempDir}/${filename}`;
+    }
+    return tempDir;
+  });
+
+  // Handler: app:get-recordings-path
+  // Returns path to recordings directory with optional filename
+  ipcMain.handle('app:get-recordings-path', async (event, filename?: string): Promise<string> => {
+    const { getRecordingsDirectory } = await import('../services/screenRecordingService');
+    const recordingsDir = getRecordingsDirectory();
+    if (filename) {
+      return `${recordingsDir}/${filename}`;
+    }
+    return recordingsDir;
+  });
+
   console.log('[IPC] App handlers registered');
 }
