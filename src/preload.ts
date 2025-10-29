@@ -19,7 +19,7 @@ import {
   ResetTrimRequest,
   ResetTrimResponse,
 } from './types/ipc';
-import { TimelineClip } from './types/session';
+import { TimelineClip, Track } from './types/session';
 import {
   GetScreensResponse,
   StartRecordingRequest,
@@ -170,6 +170,48 @@ contextBridge.exposeInMainWorld('electron', {
      */
     saveSession: (session: any): Promise<{ success: boolean; error?: string }> => {
       return ipcRenderer.invoke('timeline:save_session', session);
+    },
+
+    /**
+     * Add a new track (S12)
+     */
+    addTrack: (trackName: string): Promise<{ success: boolean; track?: Track; error?: string }> => {
+      return ipcRenderer.invoke('timeline:add_track', { trackName });
+    },
+
+    /**
+     * Remove a track and all clips on it (S12)
+     */
+    removeTrack: (trackId: string): Promise<{ success: boolean; removedClipCount?: number; error?: string }> => {
+      return ipcRenderer.invoke('timeline:remove_track', { trackId });
+    },
+
+    /**
+     * Update track properties (S12)
+     */
+    updateTrack: (trackId: string, updates: Partial<Track>): Promise<{ success: boolean; track?: Track; error?: string }> => {
+      return ipcRenderer.invoke('timeline:update_track', { trackId, updates });
+    },
+
+    /**
+     * Reorder tracks (S12)
+     */
+    reorderTracks: (reorderedIds: string[]): Promise<{ success: boolean; tracks?: Track[]; error?: string }> => {
+      return ipcRenderer.invoke('timeline:reorder_tracks', { reorderedIds });
+    },
+
+    /**
+     * Move a clip to a different track (S12)
+     */
+    moveClipToTrack: (clipId: string, targetTrackId: string): Promise<{ success: boolean; clip?: TimelineClip; error?: string }> => {
+      return ipcRenderer.invoke('timeline:move_clip_to_track', { clipId, targetTrackId });
+    },
+
+    /**
+     * Get all tracks (S12)
+     */
+    getTracks: (): Promise<{ success: boolean; tracks: Track[]; error?: string }> => {
+      return ipcRenderer.invoke('timeline:get_tracks');
     },
   },
 
