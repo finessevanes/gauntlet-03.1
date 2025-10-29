@@ -5,15 +5,17 @@
 
 import React, { useEffect, useState } from 'react';
 import { ImportButton } from './ImportButton';
-import { RecordScreenButton } from './RecordScreenButton';
 import { RecordScreenDialog } from './RecordScreenDialog';
-import { RecordWebcamButton } from './RecordWebcamButton';
 import { WebcamRecordingModal } from './WebcamRecordingModal';
+import { PiPRecordingModal } from './PiPRecordingModal';
 import { RecordingIndicator } from './RecordingIndicator';
+import { RecordingMenu } from './RecordingMenu';
 import { DragDropZone } from './DragDropZone';
 import { Library } from './Library';
 import { ImportProgressModal } from './ImportProgressModal';
 import { ErrorModal } from './ErrorModal';
+import { PermissionModal } from './PermissionModal';
+import { PermissionProvider } from '../context/PermissionContext';
 import { useImport } from '../hooks/useImport';
 import { useScreenRecorder } from '../hooks/useScreenRecorder';
 import { Timeline } from './Timeline';
@@ -32,6 +34,9 @@ export const MainLayout: React.FC = () => {
   // Webcam recording state (Story S10)
   const [isWebcamModalOpen, setIsWebcamModalOpen] = useState(false);
 
+  // PiP recording state (Story S11)
+  const [isPiPModalOpen, setIsPiPModalOpen] = useState(false);
+
   // Export state
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
   const [exportStatus, setExportStatus] = useState<'validating' | 'exporting' | 'error' | 'complete'>('validating');
@@ -40,6 +45,7 @@ export const MainLayout: React.FC = () => {
     estimatedTimeRemaining: 0,
     errorMessage: undefined as string | undefined,
   });
+  const [exportOutputPath, setExportOutputPath] = useState<string | undefined>();
 
   // Get session data for export
   const clips = useSessionStore((state) => state.clips);
@@ -117,6 +123,29 @@ export const MainLayout: React.FC = () => {
       console.log('[MainLayout] Webcam recording imported successfully');
     } catch (error) {
       console.error('[MainLayout] Failed to import webcam recording:', error);
+    }
+  };
+
+  /**
+   * Handle Record PiP button click (Story S11)
+   */
+  const handlePiPClick = () => {
+    setIsPiPModalOpen(true);
+  };
+
+  /**
+   * Handle PiP recording complete (Story S11)
+   */
+  const handlePiPRecordingComplete = async (filePath: string) => {
+    console.log('[MainLayout] PiP recording complete:', filePath);
+
+    // Auto-import the recorded PiP video into the library
+    try {
+      console.log('[MainLayout] Auto-importing PiP recording...');
+      await importVideos([filePath]);
+      console.log('[MainLayout] PiP recording imported successfully');
+    } catch (error) {
+      console.error('[MainLayout] Failed to import PiP recording:', error);
     }
   };
 
@@ -205,6 +234,7 @@ export const MainLayout: React.FC = () => {
           estimatedTimeRemaining: 0,
           errorMessage: undefined,
         });
+        setExportOutputPath(exportResult.outputPath);
       } else {
         setExportStatus('error');
         setExportProgress({
@@ -240,6 +270,7 @@ export const MainLayout: React.FC = () => {
       estimatedTimeRemaining: 0,
       errorMessage: undefined,
     });
+    setExportOutputPath(undefined);
   };
 
   /**
@@ -276,8 +307,9 @@ export const MainLayout: React.FC = () => {
   }, []);
 
   return (
-    <DragDropZone onDrop={importVideos}>
-      <div style={styles.container}>
+    <PermissionProvider>
+      <DragDropZone onDrop={importVideos}>
+        <div style={styles.container}>
         {/* Recording Indicator (shown when recording) */}
         {isRecording && <RecordingIndicator onStop={handleStopRecording} isStopping={isStopping} />}
 
@@ -293,6 +325,13 @@ export const MainLayout: React.FC = () => {
           isOpen={isWebcamModalOpen}
           onClose={() => setIsWebcamModalOpen(false)}
           onRecordingComplete={handleWebcamRecordingComplete}
+        />
+
+        {/* PiP Recording Modal (Story S11) */}
+        <PiPRecordingModal
+          isOpen={isPiPModalOpen}
+          onClose={() => setIsPiPModalOpen(false)}
+          onRecordingComplete={handlePiPRecordingComplete}
         />
 
         {/* Error Modal */}
@@ -318,7 +357,11 @@ export const MainLayout: React.FC = () => {
           onCancel={handleExportCancel}
           progress={exportProgress}
           status={exportStatus}
+          outputPath={exportOutputPath}
         />
+
+        {/* Global Permission Modal */}
+        <PermissionModal />
 
         {/* Top section: Library (left) + Preview (right) */}
         <div style={styles.topSection}>
@@ -327,8 +370,12 @@ export const MainLayout: React.FC = () => {
             <div style={styles.panelHeader}>
               <span>Library</span>
               <div style={styles.headerButtons}>
-                <RecordScreenButton onClick={handleRecordClick} disabled={isRecording} />
-                <RecordWebcamButton onClick={handleWebcamClick} disabled={isRecording} />
+                <RecordingMenu
+                  disabled={isRecording}
+                  onScreenClick={handleRecordClick}
+                  onWebcamClick={handleWebcamClick}
+                  onPiPClick={handlePiPClick}
+                />
                 <ImportButton onClick={openFilePicker} disabled={importProgress.length > 0 || isRecording} />
               </div>
             </div>
@@ -356,8 +403,9 @@ export const MainLayout: React.FC = () => {
             <Timeline />
           </div>
         </div>
-      </div>
-    </DragDropZone>
+        </div>
+      </DragDropZone>
+    </PermissionProvider>
   );
 };
 
