@@ -40,13 +40,20 @@ Use `agents/todo-template.md` as your guide. Read the PRD and user story, then o
 
 ---
 
-### Step 2: Understand
+### Step 2: Understand & Validate Technology Choices
 
 1. Read user story (acceptance criteria = definition of done)
 2. Read PRD sections: Summary, Functional Requirements, Testing & Acceptance Gates, Definition of Done
-3. Read TODO: Understand task breakdown and order
-4. Ask clarifying questions if anything is unclear
-5. **DO NOT START CODING until you understand the full scope**
+3. **CRITICAL: Validate technology choices against performance requirements**:
+   - If PRD mentions "recommended" or "OR" for implementation approach, **challenge it**
+   - Check if the approach can meet performance targets (e.g., "30fps playback", "<100ms latency")
+   - **Test critical assumptions** before implementing (e.g., "Can FFmpeg extract frames fast enough?")
+   - Look for reference implementations or working examples
+   - **If multiple options exist, pick the simplest one that meets requirements**
+   - Ask user for clarification if technology choice seems ambiguous
+4. Read TODO: Understand task breakdown and order
+5. Ask clarifying questions if anything is unclear
+6. **DO NOT START CODING until you understand the full scope AND validated technology choices**
 
 ---
 
@@ -226,4 +233,11 @@ gh pr create \
 3. Fix code
 4. Re-test
 5. Update TODO when fixed
+
+**If implementation feels slow or complex:**
+1. **STOP and reassess** - there's usually a simpler approach
+2. Check if you chose the wrong technology (e.g., frame extraction vs native video)
+3. Look for reference implementations
+4. Ask: "Is there a built-in browser/Electron API that does this?"
+5. **Simplicity > Complexity** - favor native solutions over custom implementations
 
