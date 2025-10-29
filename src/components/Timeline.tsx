@@ -78,6 +78,19 @@ export const Timeline: React.FC = () => {
 
         updateTimeline({ clips: timeline.clips, duration: newDuration });
 
+        // Persist the updated session to disk (critical for persistence across app restarts)
+        const session = {
+          version: '1.0.0',
+          clips: updatedClips,
+          timeline: { clips: timeline.clips, duration: newDuration },
+          zoomLevel: zoomLevel,
+          playheadPosition: playheadPosition,
+          scrollPosition: scrollPosition,
+          lastModified: Date.now(),
+        };
+
+        await window.electron.timeline.saveSession(session);
+
         console.log('[Timeline] Trim applied successfully, new duration:', newDuration);
       } else {
         console.error('[Timeline] Trim failed:', result.error);
@@ -85,7 +98,7 @@ export const Timeline: React.FC = () => {
     } catch (error) {
       console.error('[Timeline] Error trimming clip:', error);
     }
-  }, [clips, timeline.clips, updateTimeline]);
+  }, [clips, timeline.clips, updateTimeline, zoomLevel, playheadPosition, scrollPosition]);
 
   // Initialize trim drag hook
   const trimDrag = useTrimDrag(pixelsPerSecond, handleTrimComplete);
