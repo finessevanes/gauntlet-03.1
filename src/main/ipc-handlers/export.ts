@@ -4,10 +4,9 @@
  */
 
 import { ipcMain, BrowserWindow } from 'electron';
-import { spawn, ChildProcess } from 'child_process';
+import { ChildProcess } from 'child_process';
 import * as fs from 'fs';
-import ffmpegPath from 'ffmpeg-static';
-import * as ffprobeStatic from 'ffprobe-static';
+import { spawnFFmpeg, spawnFFprobe, getFFmpegPath } from '../services/ffmpeg-service';
 import { Clip } from '../../types/session';
 
 /**
@@ -141,7 +140,7 @@ async function handleExportVideo(
     );
 
     // Log command for debugging
-    console.log('[Export] FFmpeg command:', ffmpegPath, ffmpegArgs.join(' '));
+    console.log('[Export] FFmpeg command:', getFFmpegPath(), ffmpegArgs.join(' '));
     console.log('[Export] Output path:', outputPath);
     console.log('[Export] Timeline clips:', timeline.clips.length);
     console.log('[Export] Total duration:', timeline.totalDuration);
@@ -213,7 +212,7 @@ async function probeSourceFile(filePath: string): Promise<VideoProbeResult> {
       filePath,
     ];
 
-    const ffprobe = spawn(ffprobeStatic.path, args);
+    const ffprobe = spawnFFprobe(args);
     let stdout = '';
     let stderr = '';
 
@@ -382,7 +381,7 @@ async function executeFFmpeg(
   sender: Electron.WebContents
 ): Promise<boolean> {
   return new Promise((resolve) => {
-    const ffmpeg = spawn(ffmpegPath, args);
+    const ffmpeg = spawnFFmpeg(args);
     activeExportProcess = ffmpeg;
     activeExportOutputPath = outputPath;
 

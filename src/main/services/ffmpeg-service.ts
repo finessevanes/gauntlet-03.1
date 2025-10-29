@@ -199,6 +199,26 @@ function executeCommandBinary(
 }
 
 /**
+ * Spawn FFmpeg process with properly resolved binary path
+ * Use this instead of directly spawning with ffmpeg-static
+ * @param args - Array of FFmpeg arguments
+ * @returns ChildProcess instance
+ */
+export function spawnFFmpeg(args: string[]): ChildProcess {
+  return spawn(FFMPEG_PATH, args);
+}
+
+/**
+ * Spawn FFprobe process with properly resolved binary path
+ * Use this instead of directly spawning with ffprobe-static
+ * @param args - Array of FFprobe arguments
+ * @returns ChildProcess instance
+ */
+export function spawnFFprobe(args: string[]): ChildProcess {
+  return spawn(FFPROBE_PATH, args);
+}
+
+/**
  * Get FFmpeg binary path
  */
 export function getFFmpegPath(): string {
