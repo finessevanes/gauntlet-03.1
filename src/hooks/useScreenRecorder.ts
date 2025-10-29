@@ -20,6 +20,7 @@ export function useScreenRecorder() {
   });
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const tempWebmPathRef = useRef<string | null>(null);
 
@@ -132,6 +133,7 @@ export function useScreenRecorder() {
         console.log('[useScreenRecorder] MediaRecorder started, state:', mediaRecorder.state);
 
         mediaRecorderRef.current = mediaRecorder;
+        streamRef.current = combinedStream;
 
         // Call main process to create session and start recording
         // This returns the sessionId we'll use for stopping
@@ -189,6 +191,15 @@ export function useScreenRecorder() {
       return new Promise((resolve) => {
         mediaRecorderRef.current!.onstop = async () => {
           console.log('[useScreenRecorder] MediaRecorder stopped, processing data...');
+
+          // IMPORTANT: Stop all media tracks to release screen capture resources
+          if (streamRef.current) {
+            streamRef.current.getTracks().forEach((track) => {
+              console.log('[useScreenRecorder] Stopping track:', track.kind, track.label);
+              track.stop();
+            });
+            streamRef.current = null;
+          }
 
           try {
             // Check if we have any data
@@ -287,6 +298,15 @@ export function useScreenRecorder() {
   const cancelRecording = useCallback(async (): Promise<void> => {
     try {
       console.log('[useScreenRecorder] Canceling recording...');
+
+      // Stop all media tracks to release screen capture resources
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach((track) => {
+          console.log('[useScreenRecorder] Stopping track (cancel):', track.kind, track.label);
+          track.stop();
+        });
+        streamRef.current = null;
+      }
 
       if (mediaRecorderRef.current) {
         mediaRecorderRef.current.stop();
