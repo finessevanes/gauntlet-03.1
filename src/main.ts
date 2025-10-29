@@ -1,4 +1,4 @@
-import { app, BrowserWindow } from 'electron';
+import { app, BrowserWindow, dialog } from 'electron';
 import path from 'node:path';
 import started from 'electron-squirrel-startup';
 import { registerAppHandlers } from './main/ipc-handlers/app';
@@ -8,11 +8,15 @@ import { registerTimelineHandlers } from './main/ipc-handlers/timeline';
 import { registerTrimHandlers } from './main/ipc-handlers/trim';
 import { registerExportHandlers } from './main/ipc-handlers/export';
 import { registerRecordingHandlers } from './main/ipc-handlers/recording';
+import { cleanupAllActiveSessions, hasActiveRecordingSessions } from './main/services/screenRecordingService';
 
 // Handle creating/removing shortcuts on Windows when installing/uninstalling.
 if (started) {
   app.quit();
 }
+
+// Track if user confirmed quit during recording
+let confirmedQuitDuringRecording = false;
 
 // Allow renderer process to load local file:// resources (needed for preview player)
 app.commandLine.appendSwitch('allow-file-access-from-files');
@@ -32,6 +36,37 @@ const createWindow = () => {
       allowRunningInsecureContent: true,
       allowFileAccess: true,
     },
+  });
+
+  // Handle window close event - prevent closing during recording
+  mainWindow.on('close', (event) => {
+    // Check if there are active recording sessions
+    if (hasActiveRecordingSessions() && !confirmedQuitDuringRecording) {
+      console.log('[App] Active recording detected, showing confirmation dialog...');
+
+      // Prevent the window from closing
+      event.preventDefault();
+
+      // Show confirmation dialog
+      dialog.showMessageBox(mainWindow, {
+        type: 'warning',
+        title: 'Recording in Progress',
+        message: 'A recording is currently in progress.',
+        detail: 'If you quit now, your recording will be lost. Are you sure you want to quit?',
+        buttons: ['Cancel', 'Quit Anyway'],
+        defaultId: 0,
+        cancelId: 0,
+      }).then((result) => {
+        if (result.response === 1) {
+          // User clicked "Quit Anyway"
+          console.log('[App] User confirmed quit during recording');
+          confirmedQuitDuringRecording = true;
+          mainWindow.close();
+        } else {
+          console.log('[App] User cancelled quit');
+        }
+      });
+    }
   });
 
   // and load the index.html of the app.
@@ -81,6 +116,12 @@ app.on('activate', () => {
   if (BrowserWindow.getAllWindows().length === 0) {
     createWindow();
   }
+});
+
+// Handle app quit - cleanup any active recordings
+app.on('before-quit', () => {
+  console.log('[App] App is quitting, cleaning up active recordings...');
+  cleanupAllActiveSessions();
 });
 
 // In this file you can include the rest of your app's specific main process

@@ -14,10 +14,19 @@ import { ScreenInfo, RecordingSession } from '../../types/recording';
 // Active recording sessions (in-memory)
 const activeSessions = new Map<string, RecordingSession>();
 
+// Track webcam recording status
+let isWebcamRecording = false;
+
 // Recording directory
-const getRecordingDirectory = (): string => {
-  const tempDir = app.getPath('temp');
-  const recordingDir = path.join(tempDir, 'klippy-recordings');
+export function getRecordingsDirectory(): string {
+  // Use userData instead of temp for persistence across app launches
+  // This works in both dev and production (packaged app)
+  // Path examples:
+  // - macOS: ~/Library/Application Support/Klippy/recordings
+  // - Windows: %APPDATA%/Klippy/recordings
+  // - Linux: ~/.config/Klippy/recordings
+  const userDataDir = app.getPath('userData');
+  const recordingDir = path.join(userDataDir, 'recordings');
 
   // Create directory if it doesn't exist
   if (!fs.existsSync(recordingDir)) {
@@ -25,7 +34,7 @@ const getRecordingDirectory = (): string => {
   }
 
   return recordingDir;
-};
+}
 
 /**
  * Check Screen Recording permission on macOS
@@ -208,7 +217,7 @@ export async function getAvailableScreens(): Promise<ScreenInfo[]> {
  */
 export function createRecordingSession(screenSourceId: string, audioEnabled: boolean): RecordingSession {
   const sessionId = uuidv4();
-  const recordingDir = getRecordingDirectory();
+  const recordingDir = getRecordingsDirectory();
   const tempWebmPath = path.join(recordingDir, `${sessionId}.webm`);
 
   const session: RecordingSession = {
@@ -359,7 +368,7 @@ export async function cancelRecording(sessionId: string): Promise<void> {
  */
 export function cleanupOldRecordings(): void {
   try {
-    const recordingDir = getRecordingDirectory();
+    const recordingDir = getRecordingsDirectory();
     const files = fs.readdirSync(recordingDir);
     const sevenDaysAgo = Date.now() - (7 * 24 * 60 * 60 * 1000);
 
@@ -388,4 +397,136 @@ export function getElapsedTime(sessionId: string): number {
 
   const elapsed = (Date.now() - session.startTime) / 1000;
   return Math.floor(elapsed);
+}
+
+/**
+ * Set webcam recording status
+ */
+export function setWebcamRecordingStatus(recording: boolean): void {
+  console.log(`[ScreenRecordingService] Webcam recording status: ${recording}`);
+  isWebcamRecording = recording;
+}
+
+/**
+ * Check if there are any active recording sessions (screen or webcam)
+ * Used to prevent app close during recording
+ */
+export function hasActiveRecordingSessions(): boolean {
+  // Check screen recording sessions
+  for (const session of activeSessions.values()) {
+    if (session.recordingState === 'recording' || session.recordingState === 'stopping') {
+      return true;
+    }
+  }
+
+  // Check webcam recording
+  if (isWebcamRecording) {
+    return true;
+  }
+
+  return false;
+}
+
+/**
+ * Cleanup webcam recording temp files
+ * Removes orphaned webcam temp input files (not final MP4s) from recordings directory
+ */
+export function cleanupWebcamTempFiles(): void {
+  try {
+    console.log('[ScreenRecordingService] Cleaning up webcam temp files...');
+    const recordingDir = getRecordingsDirectory();
+
+    // Read all files in recordings directory
+    if (!fs.existsSync(recordingDir)) {
+      console.log('[ScreenRecordingService] Recordings directory does not exist');
+      return;
+    }
+
+    const files = fs.readdirSync(recordingDir);
+    let cleanedCount = 0;
+
+    // Look for webcam temp input files only (Webcam_*-input.webm or Webcam_*-input.mp4)
+    // We do NOT delete the final Webcam_*.mp4 files as those are imported into the library
+    for (const file of files) {
+      if (file.startsWith('Webcam_') && file.includes('-input.')) {
+        const filePath = path.join(recordingDir, file);
+
+        try {
+          // Check if file is older than 1 hour (likely orphaned temp input file)
+          const stats = fs.statSync(filePath);
+          const oneHourAgo = Date.now() - (60 * 60 * 1000);
+
+          if (stats.mtimeMs < oneHourAgo) {
+            fs.unlinkSync(filePath);
+            console.log(`[ScreenRecordingService] Deleted orphaned webcam temp input file: ${file}`);
+            cleanedCount++;
+          }
+        } catch (error) {
+          console.error(`[ScreenRecordingService] Error deleting webcam temp file ${file}:`, error);
+        }
+      }
+    }
+
+    if (cleanedCount > 0) {
+      console.log(`[ScreenRecordingService] Cleaned up ${cleanedCount} orphaned webcam temp file(s)`);
+    } else {
+      console.log('[ScreenRecordingService] No orphaned webcam temp files found');
+    }
+  } catch (error) {
+    console.error('[ScreenRecordingService] Error cleaning up webcam temp files:', error);
+  }
+}
+
+/**
+ * Cleanup all active recording sessions
+ * Called when app is closing to ensure proper cleanup
+ */
+export function cleanupAllActiveSessions(): void {
+  console.log('[ScreenRecordingService] Cleaning up all active sessions...');
+
+  const sessionIds = Array.from(activeSessions.keys());
+
+  if (sessionIds.length === 0) {
+    console.log('[ScreenRecordingService] No active screen recording sessions to clean up');
+  } else {
+    console.log(`[ScreenRecordingService] Found ${sessionIds.length} active session(s) to clean up`);
+
+    for (const sessionId of sessionIds) {
+      const session = activeSessions.get(sessionId);
+      if (!session) continue;
+
+      console.log(`[ScreenRecordingService] Cleaning up session ${sessionId} (state: ${session.recordingState})`);
+
+      // Delete temp WebM file if it exists
+      if (session.tempWebmPath && fs.existsSync(session.tempWebmPath)) {
+        try {
+          fs.unlinkSync(session.tempWebmPath);
+          console.log(`[ScreenRecordingService] Deleted temp file: ${session.tempWebmPath}`);
+        } catch (error) {
+          console.error(`[ScreenRecordingService] Error deleting temp file:`, error);
+        }
+      }
+
+      // Delete final MP4 file if it exists and recording was in progress
+      // (we don't want to delete completed recordings)
+      if (session.recordingState === 'recording' || session.recordingState === 'stopping') {
+        if (session.finalMp4Path && fs.existsSync(session.finalMp4Path)) {
+          try {
+            fs.unlinkSync(session.finalMp4Path);
+            console.log(`[ScreenRecordingService] Deleted incomplete final file: ${session.finalMp4Path}`);
+          } catch (error) {
+            console.error(`[ScreenRecordingService] Error deleting final file:`, error);
+          }
+        }
+      }
+
+      // Remove session from map
+      activeSessions.delete(sessionId);
+    }
+
+    console.log('[ScreenRecordingService] All screen recording sessions cleaned up');
+  }
+
+  // Also cleanup webcam temp files
+  cleanupWebcamTempFiles();
 }

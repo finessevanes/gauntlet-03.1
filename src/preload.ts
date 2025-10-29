@@ -28,6 +28,8 @@ import {
   StopRecordingResponse,
   CancelRecordingRequest,
   CancelRecordingResponse,
+  EncodeWebcamRecordingRequest,
+  EncodeWebcamRecordingResponse,
 } from './types/recording';
 
 // Expose electron APIs to renderer process
@@ -248,6 +250,25 @@ contextBridge.exposeInMainWorld('electron', {
     saveRecordingData: (sessionId: string, data: Uint8Array): Promise<{ success: boolean; tempWebmPath?: string; error?: string }> => {
       return ipcRenderer.invoke('recording:save-data', { sessionId, data });
     },
+
+    /**
+     * Encode webcam recording to MP4 (Story S10)
+     */
+    encodeWebcamRecording: (request: Omit<EncodeWebcamRecordingRequest, 'recordedBlob'> & { recordedBlob: ArrayBuffer }): Promise<EncodeWebcamRecordingResponse> => {
+      // Convert ArrayBuffer to Buffer for IPC
+      const buffer = Buffer.from(request.recordedBlob);
+      return ipcRenderer.invoke('recording:encode-webcam', {
+        ...request,
+        recordedBlob: buffer,
+      });
+    },
+
+    /**
+     * Set webcam recording status (for app quit prevention)
+     */
+    setWebcamStatus: (recording: boolean): Promise<{ success: boolean }> => {
+      return ipcRenderer.invoke('recording:set-webcam-status', { recording });
+    },
   },
 
   /**
@@ -344,6 +365,8 @@ declare global {
         stopRecording(request: import('./types/recording').StopRecordingRequest): Promise<import('./types/recording').StopRecordingResponse>;
         cancelRecording(request: import('./types/recording').CancelRecordingRequest): Promise<import('./types/recording').CancelRecordingResponse>;
         saveRecordingData(sessionId: string, data: Uint8Array): Promise<{ success: boolean; tempWebmPath?: string; error?: string }>;
+        encodeWebcamRecording(request: Omit<import('./types/recording').EncodeWebcamRecordingRequest, 'recordedBlob'> & { recordedBlob: ArrayBuffer }): Promise<import('./types/recording').EncodeWebcamRecordingResponse>;
+        setWebcamStatus(recording: boolean): Promise<{ success: boolean }>;
       };
       dragDrop: {
         onDrop(callback: (filePaths: string[]) => void): () => void;
