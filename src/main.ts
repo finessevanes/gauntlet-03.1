@@ -6,6 +6,7 @@ import { registerImportHandlers } from './main/ipc-handlers/import';
 import { registerLibraryHandlers } from './main/ipc-handlers/library';
 import { registerTimelineHandlers } from './main/ipc-handlers/timeline';
 import { registerTrimHandlers } from './main/ipc-handlers/trim';
+import { registerExportHandlers } from './main/ipc-handlers/export';
 
 // Handle creating/removing shortcuts on Windows when installing/uninstalling.
 if (started) {
@@ -57,6 +58,7 @@ app.on('ready', () => {
   registerLibraryHandlers();
   registerTimelineHandlers();
   registerTrimHandlers();
+  registerExportHandlers();
 
   // Create the main window
   createWindow();
