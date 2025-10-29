@@ -11,6 +11,12 @@
 
 - [ ] Read user story and acceptance criteria thoroughly
 - [ ] Read relevant section(s) of `prd-mvp.md`
+- [ ] **CRITICAL: Validate technology choices in PRD**:
+  - [ ] If PRD says "recommended" or "OR", identify which option meets performance requirements
+  - [ ] Test critical assumptions (e.g., "Can this approach achieve 30fps?")
+  - [ ] Look for reference implementations or simpler built-in solutions
+  - [ ] Ask user for clarification if technology choice is ambiguous
+  - [ ] Document chosen approach and why it meets requirements
 - [ ] Clarify any ambiguities before starting
 - [ ] Identify test gates from PRD (reference them below)
 
