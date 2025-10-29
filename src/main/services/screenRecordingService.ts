@@ -162,8 +162,18 @@ export async function getAvailableScreens(): Promise<ScreenInfo[]> {
       };
     });
 
-    // Check if all screens have invalid thumbnails (permission issue)
+    // Filter out windows/screens with invalid dimensions (0x0)
+    // This happens when windows are minimized, hidden, or in transition states
     const validScreens = screens.filter((s) => s.resolution !== '0x0' && s.thumbnail);
+
+    // Log filtered out sources
+    const invalidScreens = screens.filter((s) => s.resolution === '0x0' || !s.thumbnail);
+    if (invalidScreens.length > 0) {
+      console.warn('[ScreenRecordingService] Filtered out invalid sources:',
+        invalidScreens.map(s => s.name).join(', '));
+    }
+
+    // If all sources are invalid, it's likely a permission issue
     if (validScreens.length === 0 && screens.length > 0) {
       console.error('[ScreenRecordingService] All screen thumbnails are invalid - Screen Recording permission likely not granted');
       throw new Error(
@@ -173,7 +183,7 @@ export async function getAvailableScreens(): Promise<ScreenInfo[]> {
       );
     }
 
-    return screens;
+    return validScreens;
   } catch (error) {
     console.error('[ScreenRecordingService] Error getting screens:', error);
 
