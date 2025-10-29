@@ -30,6 +30,16 @@ import {
   CancelRecordingResponse,
   EncodeWebcamRecordingRequest,
   EncodeWebcamRecordingResponse,
+  CheckCameraAvailableResponse,
+  GetPiPSettingsResponse,
+  StartPiPRecordingRequest,
+  StartPiPRecordingResponse,
+  StopPiPRecordingRequest,
+  StopPiPRecordingResponse,
+  CompositePiPVideosRequest,
+  CompositePiPVideosResponse,
+  SavePiPSettingsRequest,
+  SavePiPSettingsResponse,
 } from './types/recording';
 
 // Expose electron APIs to renderer process
@@ -268,6 +278,67 @@ contextBridge.exposeInMainWorld('electron', {
      */
     setWebcamStatus: (recording: boolean): Promise<{ success: boolean }> => {
       return ipcRenderer.invoke('recording:set-webcam-status', { recording });
+    },
+  },
+
+  /**
+   * Picture-in-Picture Recording API (Story S11)
+   */
+  pip: {
+    /**
+     * Check if camera is available
+     */
+    checkCameraAvailable: (): Promise<CheckCameraAvailableResponse> => {
+      return ipcRenderer.invoke('pip:check-camera-available');
+    },
+
+    /**
+     * Get saved PiP settings
+     */
+    getPipSettings: (): Promise<GetPiPSettingsResponse> => {
+      return ipcRenderer.invoke('pip:get-pip-settings');
+    },
+
+    /**
+     * Start PiP recording
+     */
+    startPiPRecording: (request: StartPiPRecordingRequest): Promise<StartPiPRecordingResponse> => {
+      return ipcRenderer.invoke('pip:start-pip-recording', request);
+    },
+
+    /**
+     * Stop PiP recording
+     */
+    stopPiPRecording: (request: StopPiPRecordingRequest): Promise<StopPiPRecordingResponse> => {
+      return ipcRenderer.invoke('pip:stop-pip-recording', request);
+    },
+
+    /**
+     * Composite PiP videos
+     */
+    compositePiPVideos: (request: CompositePiPVideosRequest): Promise<CompositePiPVideosResponse> => {
+      return ipcRenderer.invoke('pip:composite-pip-videos', request);
+    },
+
+    /**
+     * Save PiP settings
+     */
+    savePipSettings: (request: SavePiPSettingsRequest): Promise<SavePiPSettingsResponse> => {
+      return ipcRenderer.invoke('pip:save-pip-settings', request);
+    },
+
+    /**
+     * Save PiP recording data to file (screen stream)
+     */
+    saveScreenData: (recordingId: string, filePath: string, data: Uint8Array): Promise<{ success: boolean; error?: string }> => {
+      return ipcRenderer.invoke('pip:save-screen-data', { recordingId, filePath, data });
+    },
+
+    /**
+     * Save PiP recording data to file (webcam stream)
+     */
+    saveWebcamData: (recordingId: string, filePath: string, data: Uint8Array): Promise<{ success: boolean; error?: string }> => {
+      return ipcRenderer.invoke('pip:save-webcam-data', { recordingId, filePath, data });
     },
   },
 

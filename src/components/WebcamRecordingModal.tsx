@@ -6,6 +6,11 @@
 
 import React, { useEffect, useState, useRef } from 'react';
 import { app } from 'electron';
+import { usePermissionModal } from '../context/PermissionContext';
+import { checkCameraAndMicrophonePermission } from '../utils/permissionChecks';
+import { usePermissionGate } from '../hooks/usePermissionGate';
+import { openPermissionModalWithCallbacks } from '../utils/permissionModalHelper';
+import { useMediaPermissions } from '../hooks/useMediaPermissions';
 
 interface WebcamRecordingModalProps {
   isOpen: boolean;
@@ -15,25 +20,26 @@ interface WebcamRecordingModalProps {
 
 type RecordingStatus = 'idle' | 'preview' | 'recording' | 'saving' | 'error';
 
-interface CameraDevice {
-  deviceId: string;
-  label: string;
-}
-
-interface MicrophoneDevice {
-  deviceId: string;
-  label: string;
-}
-
 export const WebcamRecordingModal: React.FC<WebcamRecordingModalProps> = ({
   isOpen,
   onClose,
   onRecordingComplete,
 }) => {
+  const permissionModal = usePermissionModal();
+  const shouldRender = usePermissionGate(isOpen);
+
+  // Use the consolidated media permissions hook for both camera and microphone
+  const {
+    cameraDevices,
+    audioDevices,
+  } = useMediaPermissions({
+    checkCamera: true,
+    checkMicrophone: true,
+    autoEnumerate: false
+  });
+
   const [status, setStatus] = useState<RecordingStatus>('idle');
-  const [cameras, setCameras] = useState<CameraDevice[]>([]);
   const [selectedCameraId, setSelectedCameraId] = useState<string>('');
-  const [microphones, setMicrophones] = useState<MicrophoneDevice[]>([]);
   const [selectedMicrophoneId, setSelectedMicrophoneId] = useState<string>('');
   const [mediaStream, setMediaStream] = useState<MediaStream | null>(null);
   const [mediaRecorder, setMediaRecorder] = useState<MediaRecorder | null>(null);
@@ -41,14 +47,13 @@ export const WebcamRecordingModal: React.FC<WebcamRecordingModalProps> = ({
   const [startTime, setStartTime] = useState<number>(0);
   const [elapsedSeconds, setElapsedSeconds] = useState<number>(0);
   const [errorMessage, setErrorMessage] = useState<string>('');
-  const [permissionStatus, setPermissionStatus] = useState<'prompt' | 'granted' | 'denied'>('prompt');
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const timerIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
     if (isOpen) {
-      initializeCamera();
+      initializeModal();
     } else {
       cleanupCamera();
     }
@@ -57,6 +62,33 @@ export const WebcamRecordingModal: React.FC<WebcamRecordingModalProps> = ({
       cleanupCamera();
     };
   }, [isOpen]);
+
+  /**
+   * Initialize modal by checking permissions first
+   */
+  const initializeModal = async () => {
+    console.log('[WebcamModal] Initializing modal - checking permissions upfront...');
+
+    // Check camera and microphone permissions FIRST
+    const permissionCheck = await checkCameraAndMicrophonePermission();
+
+    if (!permissionCheck.granted) {
+      console.log('[WebcamModal] Permission denied:', permissionCheck.errorType);
+      const permissionType = permissionCheck.errorType || 'camera';
+      openPermissionModalWithCallbacks({
+        permissionModal,
+        type: permissionType as 'camera' | 'microphone',
+        errorMessage: permissionCheck.error || 'Permission denied',
+        onRetry: initializeModal,
+        onCancel: onClose,
+      });
+      setStatus('error');
+      return;
+    }
+
+    // If permissions OK, proceed with camera initialization
+    initializeCamera();
+  };
 
   useEffect(() => {
     if (mediaStream && videoRef.current) {
@@ -94,32 +126,13 @@ export const WebcamRecordingModal: React.FC<WebcamRecordingModalProps> = ({
       });
 
       console.log('[WebcamModal] Permission granted!');
-      setPermissionStatus('granted');
 
-      // Enumerate again to get labels (requires permission)
-      const devicesWithLabels = await navigator.mediaDevices.enumerateDevices();
-      const videoDevices: CameraDevice[] = devicesWithLabels
-        .filter((d) => d.kind === 'videoinput')
-        .map((d) => ({
-          deviceId: d.deviceId,
-          label: d.label || `Camera ${d.deviceId.slice(0, 8)}`,
-        }));
-
-      const audioDevices: MicrophoneDevice[] = devicesWithLabels
-        .filter((d) => d.kind === 'audioinput')
-        .map((d) => ({
-          deviceId: d.deviceId,
-          label: d.label || `Microphone ${d.deviceId.slice(0, 8)}`,
-        }));
-
-      setCameras(videoDevices);
-      setMicrophones(audioDevices);
       setMediaStream(stream);
       setStatus('preview');
 
-      // Auto-select first camera and microphone
-      if (videoDevices.length > 0) {
-        setSelectedCameraId(videoDevices[0].deviceId);
+      // Auto-select first camera and microphone from hook's device lists
+      if (cameraDevices.length > 0) {
+        setSelectedCameraId(cameraDevices[0].deviceId);
       }
       if (audioDevices.length > 0) {
         setSelectedMicrophoneId(audioDevices[0].deviceId);
@@ -127,21 +140,21 @@ export const WebcamRecordingModal: React.FC<WebcamRecordingModalProps> = ({
 
     } catch (error) {
       console.error('[WebcamModal] Error accessing camera:', error);
-      setPermissionStatus('denied');
       setStatus('error');
 
       if (error instanceof Error) {
-        if (error.name === 'NotAllowedError' || error.name === 'PermissionDeniedError') {
-          setErrorMessage(
-            'Camera permission denied. Please go to System Settings → Privacy & Security → Camera and enable access for this app.'
-          );
-        } else if (error.name === 'NotFoundError' || error.name === 'DevicesNotFoundError') {
-          setErrorMessage('No camera found. Please connect a webcam and try again.');
+        let errorMsg = '';
+
+        // Permission errors should have been caught upfront, so these are device errors
+        if (error.name === 'NotFoundError' || error.name === 'DevicesNotFoundError') {
+          errorMsg = 'No camera found. Please connect a webcam and try again.';
         } else if (error.name === 'NotReadableError' || error.name === 'TrackStartError') {
-          setErrorMessage('Camera is already in use by another application. Please close other apps and try again.');
+          errorMsg = 'Camera is already in use by another application. Please close other apps and try again.';
         } else {
-          setErrorMessage(`Failed to access camera: ${error.message}`);
+          errorMsg = `Failed to access camera: ${error.message}`;
         }
+
+        setErrorMessage(errorMsg);
       } else {
         setErrorMessage('An unknown error occurred while accessing the camera.');
       }
@@ -404,7 +417,7 @@ export const WebcamRecordingModal: React.FC<WebcamRecordingModalProps> = ({
     initializeCamera();
   };
 
-  if (!isOpen) {
+  if (!shouldRender) {
     return null;
   }
 
@@ -468,7 +481,7 @@ export const WebcamRecordingModal: React.FC<WebcamRecordingModalProps> = ({
               )}
 
               {/* Camera selector (only show if multiple cameras) */}
-              {cameras.length > 1 && status === 'preview' && (
+              {cameraDevices.length > 1 && status === 'preview' && (
                 <div style={styles.cameraSelector}>
                   <label style={styles.cameraSelectorLabel}>
                     <span>Camera:</span>
@@ -477,7 +490,7 @@ export const WebcamRecordingModal: React.FC<WebcamRecordingModalProps> = ({
                       onChange={(e) => switchCamera(e.target.value)}
                       style={styles.cameraDropdown}
                     >
-                      {cameras.map((camera) => (
+                      {cameraDevices.map((camera) => (
                         <option key={camera.deviceId} value={camera.deviceId}>
                           {camera.label}
                         </option>
@@ -488,7 +501,7 @@ export const WebcamRecordingModal: React.FC<WebcamRecordingModalProps> = ({
               )}
 
               {/* Microphone selector (only show if multiple microphones) */}
-              {microphones.length > 1 && status === 'preview' && (
+              {audioDevices.length > 1 && status === 'preview' && (
                 <div style={styles.microphoneSelector}>
                   <label style={styles.microphoneSelectorLabel}>
                     <span>Microphone:</span>
@@ -497,7 +510,7 @@ export const WebcamRecordingModal: React.FC<WebcamRecordingModalProps> = ({
                       onChange={(e) => switchMicrophone(e.target.value)}
                       style={styles.microphoneDropdown}
                     >
-                      {microphones.map((microphone) => (
+                      {audioDevices.map((microphone) => (
                         <option key={microphone.deviceId} value={microphone.deviceId}>
                           {microphone.label}
                         </option>
@@ -521,6 +534,13 @@ export const WebcamRecordingModal: React.FC<WebcamRecordingModalProps> = ({
         <div style={styles.footer}>
           {status === 'preview' && (
             <>
+              <button style={styles.backButton} onClick={() => {
+                cleanupCamera();
+                onClose();
+              }}>
+                ← Back
+              </button>
+              <div style={styles.footerSpacer}></div>
               <button style={styles.cancelButton} onClick={() => {
                 cleanupCamera();
                 onClose();
@@ -757,10 +777,25 @@ const styles = {
   },
   footer: {
     display: 'flex',
-    justifyContent: 'flex-end',
+    justifyContent: 'space-between',
+    alignItems: 'center',
     gap: '12px',
     padding: '16px 20px',
     borderTop: '1px solid #444',
+  },
+  footerSpacer: {
+    flex: 1,
+  },
+  backButton: {
+    backgroundColor: '#4a90e2',
+    color: '#ffffff',
+    border: 'none',
+    borderRadius: '4px',
+    padding: '8px 16px',
+    fontSize: '12px',
+    fontWeight: 'bold' as const,
+    cursor: 'pointer',
+    transition: 'background-color 0.2s',
   },
   cancelButton: {
     backgroundColor: '#555',

@@ -7,7 +7,7 @@ import { registerLibraryHandlers } from './main/ipc-handlers/library';
 import { registerTimelineHandlers } from './main/ipc-handlers/timeline';
 import { registerTrimHandlers } from './main/ipc-handlers/trim';
 import { registerExportHandlers } from './main/ipc-handlers/export';
-import { registerRecordingHandlers } from './main/ipc-handlers/recording';
+import { registerRecordingHandlers, hasPiPRecordingActive } from './main/ipc-handlers/recording';
 import { cleanupAllActiveSessions, hasActiveRecordingSessions } from './main/services/screenRecordingService';
 
 // Handle creating/removing shortcuts on Windows when installing/uninstalling.
@@ -40,8 +40,10 @@ const createWindow = () => {
 
   // Handle window close event - prevent closing during recording
   mainWindow.on('close', (event) => {
-    // Check if there are active recording sessions
-    if (hasActiveRecordingSessions() && !confirmedQuitDuringRecording) {
+    // Check if there are active recording sessions (screen, webcam, or PiP)
+    const hasActiveRecordings = hasActiveRecordingSessions() || hasPiPRecordingActive();
+
+    if (hasActiveRecordings && !confirmedQuitDuringRecording) {
       console.log('[App] Active recording detected, showing confirmation dialog...');
 
       // Prevent the window from closing

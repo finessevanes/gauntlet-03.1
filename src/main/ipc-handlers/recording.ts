@@ -4,9 +4,10 @@
  * Story S9: Screen Recording
  */
 
-import { ipcMain, IpcMainInvokeEvent } from 'electron';
+import { ipcMain, IpcMainInvokeEvent, app } from 'electron';
 import * as path from 'path';
 import * as fs from 'fs';
+import { v4 as uuidv4 } from 'uuid';
 import {
   GetScreensResponse,
   StartRecordingRequest,
@@ -17,6 +18,17 @@ import {
   CancelRecordingResponse,
   EncodeWebcamRecordingRequest,
   EncodeWebcamRecordingResponse,
+  CheckCameraAvailableResponse,
+  GetPiPSettingsResponse,
+  StartPiPRecordingRequest,
+  StartPiPRecordingResponse,
+  StopPiPRecordingRequest,
+  StopPiPRecordingResponse,
+  CompositePiPVideosRequest,
+  CompositePiPVideosResponse,
+  SavePiPSettingsRequest,
+  SavePiPSettingsResponse,
+  PiPRecordingSettings,
 } from '../../types/recording';
 import {
   getAvailableScreens,
@@ -28,8 +40,9 @@ import {
   getRecordingSession,
   cleanupOldRecordings,
   setWebcamRecordingStatus,
+  getRecordingsDirectory,
 } from '../services/screenRecordingService';
-import { convertWebmToMp4, executeFFmpeg, executeFFprobe } from '../services/ffmpeg-service';
+import { convertWebmToMp4, executeFFmpeg, executeFFprobe, generatePiPThumbnail } from '../services/ffmpeg-service';
 
 /**
  * Register all recording IPC handlers
@@ -58,6 +71,16 @@ export function registerRecordingHandlers(): void {
   // Webcam recording handlers (Story S10)
   ipcMain.handle('recording:encode-webcam', handleEncodeWebcamRecording);
   ipcMain.handle('recording:set-webcam-status', handleSetWebcamStatus);
+
+  // Picture-in-Picture recording handlers (Story S11)
+  ipcMain.handle('pip:check-camera-available', handleCheckCameraAvailable);
+  ipcMain.handle('pip:get-pip-settings', handleGetPiPSettings);
+  ipcMain.handle('pip:start-pip-recording', handleStartPiPRecording);
+  ipcMain.handle('pip:stop-pip-recording', handleStopPiPRecording);
+  ipcMain.handle('pip:composite-pip-videos', handleCompositePiPVideos);
+  ipcMain.handle('pip:save-pip-settings', handleSavePiPSettings);
+  ipcMain.handle('pip:save-screen-data', handleSaveScreenData);
+  ipcMain.handle('pip:save-webcam-data', handleSaveWebcamData);
 
   // Cleanup old recordings on startup
   cleanupOldRecordings();
@@ -352,6 +375,28 @@ async function getVideoDimensions(filePath: string): Promise<{ width: number; he
 }
 
 /**
+ * Check if file has audio stream
+ */
+async function hasAudioStream(filePath: string): Promise<boolean> {
+  try {
+    const args = [
+      '-v', 'error',
+      '-select_streams', 'a:0',
+      '-show_entries', 'stream=codec_type',
+      '-of', 'json',
+      filePath,
+    ];
+
+    const result = await executeFFprobe(args);
+    const data = JSON.parse(result.stdout);
+    return (data.streams?.length || 0) > 0;
+  } catch (error) {
+    console.error('[RecordingHandlers] Error checking audio stream:', error);
+    return false;
+  }
+}
+
+/**
  * Handle set webcam recording status
  */
 async function handleSetWebcamStatus(
@@ -475,6 +520,505 @@ async function handleEncodeWebcamRecording(
     return {
       success: false,
       error: error instanceof Error ? error.message : 'Failed to encode webcam recording',
+    };
+  }
+}
+
+/**
+ * =========================================================================
+ * Picture-in-Picture Recording Handlers (Story S11)
+ * =========================================================================
+ */
+
+// In-memory storage for active PiP recording sessions
+import { PiPRecordingSession } from '../../types/recording';
+const activePiPSessions = new Map<string, PiPRecordingSession>();
+
+/**
+ * Handle check camera available request
+ */
+async function handleCheckCameraAvailable(
+  event: IpcMainInvokeEvent
+): Promise<CheckCameraAvailableResponse> {
+  try {
+    console.log('[PiPHandlers] Checking camera availability...');
+
+    // Note: The actual camera check happens in the renderer process via getUserMedia
+    // This handler just returns a success response - the real check is done in the React component
+    // We return available: true here, and let the renderer process handle the actual getUserMedia call
+    return {
+      available: true,
+    };
+  } catch (error) {
+    console.error('[PiPHandlers] Error checking camera availability:', error);
+    return {
+      available: false,
+      reason: error instanceof Error ? error.message : 'Unknown error',
+    };
+  }
+}
+
+/**
+ * Handle get PiP settings request
+ * Returns last used settings from session.json
+ */
+async function handleGetPiPSettings(
+  event: IpcMainInvokeEvent
+): Promise<GetPiPSettingsResponse> {
+  try {
+    console.log('[PiPHandlers] Getting PiP settings...');
+
+    const userDataPath = app.getPath('userData');
+    const sessionPath = path.join(userDataPath, 'session.json');
+
+    // Default settings
+    const defaultSettings: PiPRecordingSettings = {
+      screenId: '',  // Will be set to primary screen in the component
+      webcamPosition: 'BL',
+      webcamSize: 'medium',
+      audioMode: 'both',
+    };
+
+    // Try to read existing session
+    if (fs.existsSync(sessionPath)) {
+      try {
+        const sessionData = JSON.parse(fs.readFileSync(sessionPath, 'utf-8'));
+        if (sessionData.pipSettings) {
+          return {
+            settings: {
+              screenId: sessionData.pipSettings.lastScreenId || '',
+              webcamPosition: sessionData.pipSettings.lastPosition || 'BL',
+              webcamSize: sessionData.pipSettings.lastSize || 'medium',
+              audioMode: sessionData.pipSettings.lastAudioMode || 'both',
+            },
+          };
+        }
+      } catch (parseError) {
+        console.error('[PiPHandlers] Error parsing session.json:', parseError);
+      }
+    }
+
+    // Return defaults if no saved settings
+    return {
+      settings: defaultSettings,
+    };
+  } catch (error) {
+    console.error('[PiPHandlers] Error getting PiP settings:', error);
+    return {
+      settings: {
+        screenId: '',
+        webcamPosition: 'BL',
+        webcamSize: 'medium',
+        audioMode: 'both',
+      },
+      error: error instanceof Error ? error.message : 'Failed to get PiP settings',
+    };
+  }
+}
+
+/**
+ * Handle start PiP recording request
+ * Creates temp file paths and returns recording ID
+ */
+async function handleStartPiPRecording(
+  event: IpcMainInvokeEvent,
+  request: StartPiPRecordingRequest
+): Promise<StartPiPRecordingResponse> {
+  try {
+    console.log('[PiPHandlers] Starting PiP recording:', request);
+
+    if (!request.screenId) {
+      return {
+        success: false,
+        error: 'Screen ID is required',
+      };
+    }
+
+    // Generate unique recording ID
+    const recordingId = uuidv4();
+    const timestamp = Date.now();
+
+    // Create temp file paths
+    const tempDir = app.getPath('temp');
+    const screenFilePath = path.join(tempDir, `pip-screen-${timestamp}.webm`);
+    const webcamFilePath = path.join(tempDir, `pip-webcam-${timestamp}.webm`);
+
+    // Create PiP recording session
+    const session: PiPRecordingSession = {
+      id: recordingId,
+      startTime: timestamp,
+      screenFilePath,
+      webcamFilePath,
+      settings: request.settings,
+      status: 'recording',
+    };
+
+    // Store session
+    activePiPSessions.set(recordingId, session);
+
+    console.log('[PiPHandlers] PiP recording session created:', {
+      recordingId,
+      screenFilePath,
+      webcamFilePath,
+    });
+
+    return {
+      success: true,
+      recordingId,
+      status: 'recording',
+    };
+  } catch (error) {
+    console.error('[PiPHandlers] Error starting PiP recording:', error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to start PiP recording',
+    };
+  }
+}
+
+/**
+ * Handle stop PiP recording request
+ * Returns temp file paths for screen and webcam recordings
+ */
+async function handleStopPiPRecording(
+  event: IpcMainInvokeEvent,
+  request: StopPiPRecordingRequest
+): Promise<StopPiPRecordingResponse> {
+  try {
+    console.log('[PiPHandlers] Stopping PiP recording:', request.recordingId);
+
+    const session = activePiPSessions.get(request.recordingId);
+    if (!session) {
+      return {
+        success: false,
+        error: 'PiP recording session not found',
+      };
+    }
+
+    // Calculate duration
+    const duration = (Date.now() - session.startTime) / 1000;
+
+    // Update session status
+    session.status = 'stopping';
+
+    console.log('[PiPHandlers] PiP recording stopped:', {
+      recordingId: request.recordingId,
+      duration,
+      screenFile: session.screenFilePath,
+      webcamFile: session.webcamFilePath,
+    });
+
+    return {
+      success: true,
+      screenFile: session.screenFilePath,
+      webcamFile: session.webcamFilePath,
+      duration,
+    };
+  } catch (error) {
+    console.error('[PiPHandlers] Error stopping PiP recording:', error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to stop PiP recording',
+    };
+  }
+}
+
+/**
+ * Handle composite PiP videos request
+ * Uses FFmpeg to overlay webcam on screen recording
+ *
+ * IMPORTANT: outputPath should be in recordings directory (app.getPath('userData')/recordings/)
+ * for persistence across app launches and packaged builds (npm run make).
+ * Do NOT use temp directory for final composite video.
+ */
+async function handleCompositePiPVideos(
+  event: IpcMainInvokeEvent,
+  request: CompositePiPVideosRequest
+): Promise<CompositePiPVideosResponse> {
+  try {
+    console.log('[PiPHandlers] Compositing PiP videos:', {
+      screenFile: request.screenFile,
+      webcamFile: request.webcamFile,
+      settings: request.settings,
+      outputPath: request.outputPath,
+    });
+
+    // Validate input files exist
+    if (!fs.existsSync(request.screenFile)) {
+      return {
+        success: false,
+        error: 'Screen recording file not found',
+      };
+    }
+
+    if (!fs.existsSync(request.webcamFile)) {
+      return {
+        success: false,
+        error: 'Webcam recording file not found',
+      };
+    }
+
+    // Get screen video dimensions using ffprobe
+    const screenDimensions = await getVideoDimensions(request.screenFile);
+    const screenW = screenDimensions.width;
+    const screenH = screenDimensions.height;
+
+    // Check which streams have audio
+    const screenHasAudio = await hasAudioStream(request.screenFile);
+    const webcamHasAudio = await hasAudioStream(request.webcamFile);
+
+    console.log('[PiPHandlers] Audio stream detection:', {
+      screenHasAudio,
+      webcamHasAudio,
+      audioMode: request.settings.audioMode,
+    });
+
+    // Calculate webcam overlay size based on settings
+    const sizeMap = {
+      small: 0.2,
+      medium: 0.3,
+      large: 0.4,
+    };
+    const webcamW = Math.floor(screenW * sizeMap[request.settings.webcamSize]);
+    const webcamH = Math.floor((webcamW / 16) * 9); // Assume 16:9 aspect ratio
+
+    // Calculate webcam overlay position based on settings
+    const posMap = {
+      TL: { x: 0, y: 0 },
+      TR: { x: screenW - webcamW, y: 0 },
+      BL: { x: 0, y: screenH - webcamH },
+      BR: { x: screenW - webcamW, y: screenH - webcamH },
+    };
+    const pos = posMap[request.settings.webcamPosition];
+
+    // Build video filter based on webcam shape
+    let videoFilter: string;
+
+    if (request.settings.webcamShape === 'circle') {
+      // For circular shape: scale to square and apply circular mask using geq filter
+      // The geq filter requires expressions for all channels: r, g, b, and a
+      const circleSize = webcamW;
+      // Use geq to create a circular mask:
+      // - r, g, b: pass through original pixel values
+      // - a: if pixel distance from center <= radius, keep alpha=255, else alpha=0
+      videoFilter = `[1:v]scale=${circleSize}:${circleSize}[scaled];[scaled]format=rgba[fmt];[fmt]geq=r='r(X,Y)':g='g(X,Y)':b='b(X,Y)':a='if(lte(hypot(X-W/2\\,Y-H/2)\\,W/2)\\,255\\,0)'[masked];[0:v][masked]overlay=x=${pos.x}:y=${pos.y}[vid]`;
+    } else {
+      // For rectangular shape: use standard scaling
+      videoFilter = `[1:v]scale=${webcamW}:${webcamH}[webcam];[0:v][webcam]overlay=x=${pos.x}:y=${pos.y}[vid]`;
+    }
+
+    // Build audio handling - PiP always uses microphone audio only (like webcam recording)
+    let filterComplex: string = videoFilter;
+    let audioMap: string[] = [];
+    let ffmpegArgs: string[];
+
+    // Always use webcam audio (microphone) if available
+    if (webcamHasAudio) {
+      audioMap = ['1:a'];
+      console.log('[PiPHandlers] Using microphone audio from webcam track');
+    } else {
+      console.warn('[PiPHandlers] No microphone audio available in webcam track');
+    }
+
+    // Build FFmpeg command
+    ffmpegArgs = [
+      '-i', request.screenFile,
+      '-i', request.webcamFile,
+      '-filter_complex', filterComplex,
+      '-map', '[vid]',
+    ];
+
+    // Add audio maps if available
+    if (audioMap.length > 0) {
+      for (const map of audioMap) {
+        ffmpegArgs.push('-map', map);
+      }
+      ffmpegArgs.push('-c:a', 'aac', '-b:a', '128k');
+    }
+
+    // Add video codec and output
+    ffmpegArgs.push(
+      '-c:v', 'libx264',
+      '-preset', 'medium',
+      '-crf', '23',
+      '-y',
+      request.outputPath
+    );
+
+    console.log('[PiPHandlers] Executing FFmpeg composite command...');
+    await executeFFmpeg(ffmpegArgs, 120000); // 2 minute timeout
+
+    // Get duration of composite video
+    const duration = await getVideoDuration(request.outputPath);
+
+    console.log('[PiPHandlers] Composite video created:', {
+      outputPath: request.outputPath,
+      duration,
+    });
+
+    // Generate intelligent thumbnail for PiP video
+    // Samples frames at 0ms, 500ms, 1000ms, 1500ms to detect when PiP overlay appears
+    const thumbnailPath = request.outputPath.replace('.mp4', '-thumb.jpg');
+    let finalThumbnailPath: string | undefined;
+    try {
+      console.log('[PiPHandlers] Generating PiP thumbnail with frame sampling...');
+      await generatePiPThumbnail(request.outputPath, thumbnailPath);
+      finalThumbnailPath = fs.existsSync(thumbnailPath) ? thumbnailPath : undefined;
+      console.log('[PiPHandlers] PiP thumbnail generated:', finalThumbnailPath);
+    } catch (error) {
+      console.error('[PiPHandlers] Error generating PiP thumbnail:', error);
+      // Non-critical error, continue without thumbnail
+    }
+
+    // Cleanup temp files
+    try {
+      fs.unlinkSync(request.screenFile);
+      fs.unlinkSync(request.webcamFile);
+      console.log('[PiPHandlers] Cleaned up temp files');
+    } catch (cleanupError) {
+      console.error('[PiPHandlers] Error cleaning up temp files:', cleanupError);
+      // Non-critical error
+    }
+
+    return {
+      success: true,
+      compositeFile: request.outputPath,
+      duration,
+      thumbnailPath: finalThumbnailPath,
+    };
+  } catch (error) {
+    console.error('[PiPHandlers] Error compositing PiP videos:', error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to composite PiP videos',
+    };
+  }
+}
+
+/**
+ * Handle save PiP settings request
+ * Persists settings to session.json
+ */
+async function handleSavePiPSettings(
+  event: IpcMainInvokeEvent,
+  request: SavePiPSettingsRequest
+): Promise<SavePiPSettingsResponse> {
+  try {
+    console.log('[PiPHandlers] Saving PiP settings:', request.settings);
+
+    const userDataPath = app.getPath('userData');
+    const sessionPath = path.join(userDataPath, 'session.json');
+
+    let sessionData: any = {};
+
+    // Read existing session if it exists
+    if (fs.existsSync(sessionPath)) {
+      try {
+        sessionData = JSON.parse(fs.readFileSync(sessionPath, 'utf-8'));
+      } catch (parseError) {
+        console.error('[PiPHandlers] Error parsing session.json:', parseError);
+        sessionData = {};
+      }
+    }
+
+    // Update pipSettings section
+    sessionData.pipSettings = {
+      lastScreenId: request.settings.screenId,
+      lastPosition: request.settings.webcamPosition,
+      lastSize: request.settings.webcamSize,
+      lastAudioMode: request.settings.audioMode,
+    };
+
+    // Write back to session.json
+    fs.writeFileSync(sessionPath, JSON.stringify(sessionData, null, 2), 'utf-8');
+
+    console.log('[PiPHandlers] PiP settings saved successfully');
+
+    return {
+      success: true,
+    };
+  } catch (error) {
+    console.error('[PiPHandlers] Error saving PiP settings:', error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to save PiP settings',
+    };
+  }
+}
+
+/**
+ * Export function to check if PiP recording is active (for quit prevention)
+ */
+export function hasPiPRecordingActive(): boolean {
+  for (const session of activePiPSessions.values()) {
+    if (session.status === 'recording' || session.status === 'compositing') {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Export function to cleanup PiP session
+ */
+export function cleanupPiPSession(recordingId: string): void {
+  activePiPSessions.delete(recordingId);
+}
+
+/**
+ * Handle save screen recording data
+ * Saves the screen Blob data to temp file
+ */
+async function handleSaveScreenData(
+  event: IpcMainInvokeEvent,
+  request: { recordingId: string; filePath: string; data: Uint8Array }
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    console.log('[PiPHandlers] Saving screen data for recording:', request.recordingId);
+
+    // Write Uint8Array to file
+    const buffer = Buffer.from(request.data);
+    fs.writeFileSync(request.filePath, buffer);
+
+    console.log('[PiPHandlers] Saved screen recording to:', request.filePath);
+
+    return {
+      success: true,
+    };
+  } catch (error) {
+    console.error('[PiPHandlers] Error saving screen data:', error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to save screen recording',
+    };
+  }
+}
+
+/**
+ * Handle save webcam recording data
+ * Saves the webcam Blob data to temp file
+ */
+async function handleSaveWebcamData(
+  event: IpcMainInvokeEvent,
+  request: { recordingId: string; filePath: string; data: Uint8Array }
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    console.log('[PiPHandlers] Saving webcam data for recording:', request.recordingId);
+
+    // Write Uint8Array to file
+    const buffer = Buffer.from(request.data);
+    fs.writeFileSync(request.filePath, buffer);
+
+    console.log('[PiPHandlers] Saved webcam recording to:', request.filePath);
+
+    return {
+      success: true,
+    };
+  } catch (error) {
+    console.error('[PiPHandlers] Error saving webcam data:', error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to save webcam recording',
     };
   }
 }

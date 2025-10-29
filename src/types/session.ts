@@ -25,6 +25,9 @@ export interface Clip {
   // Story S9: Screen Recording
   source?: 'import' | 'recording';  // Track if recorded in-app (default: 'import')
   recordedAt?: number;              // Timestamp when recorded (ms since epoch)
+
+  // Story S11: Picture-in-Picture Recording
+  isPiPRecording?: boolean;         // Flag for PiP composite videos
 }
 
 export interface TimelineClip {

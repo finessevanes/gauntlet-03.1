@@ -168,6 +168,7 @@ export async function getAvailableScreens(): Promise<ScreenInfo[]> {
         name: source.name,
         resolution,
         thumbnail,
+        displayId: source.display_id, // Electron's displayId for positioning overlay
       };
     });
 
