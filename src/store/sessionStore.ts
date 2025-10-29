@@ -18,6 +18,11 @@ interface SessionState {
   selectedClipId: string | null;
   selectedClipSource: 'library' | 'timeline' | null;
 
+  // Preview playback state (not persisted to disk)
+  isPlaying: boolean;
+  previewSource: 'timeline' | 'library';
+  previewClipId: string | null;
+
   // Actions
   setSession: (session: Session) => void;
   addClip: (clip: Clip) => void;
@@ -28,6 +33,8 @@ interface SessionState {
   setPlayheadPosition: (position: number) => void;
   setScrollPosition: (position: number) => void;
   setSelectedClip: (clipId: string | null, source: 'library' | 'timeline' | null) => void;
+  setIsPlaying: (playing: boolean) => void;
+  setPreviewSource: (source: 'timeline' | 'library', options?: { clipId?: string | null; resetPlayhead?: boolean }) => void;
   resetSession: () => void;
   clearLibrary: () => void;
 }
@@ -44,6 +51,9 @@ const defaultState = {
   scrollPosition: 0,
   selectedClipId: null,
   selectedClipSource: null,
+  isPlaying: false,
+  previewSource: 'timeline' as const,
+  previewClipId: null,
 };
 
 export const useSessionStore = create<SessionState>((set) => ({
@@ -125,6 +135,27 @@ export const useSessionStore = create<SessionState>((set) => ({
   setSelectedClip: (clipId: string | null, source: 'library' | 'timeline' | null) => set({
     selectedClipId: clipId,
     selectedClipSource: source,
+  }),
+
+  // Control playback state (play/pause)
+  setIsPlaying: (playing: boolean) => set({ isPlaying: playing }),
+
+  // Switch between timeline and library preview sources
+  setPreviewSource: (source: 'timeline' | 'library', options) => set(() => {
+    const nextState: Partial<SessionState> = {
+      previewSource: source,
+      previewClipId: options?.clipId ?? null,
+    };
+
+    if (source === 'library') {
+      nextState.isPlaying = false;
+    }
+
+    if (options?.resetPlayhead) {
+      nextState.playheadPosition = 0;
+    }
+
+    return nextState;
   }),
 
   // Reset to empty state
