@@ -70,7 +70,7 @@ let activeExportOutputPath: string | null = null;
 export function registerExportHandlers(): void {
   console.log('[Export] Registering export IPC handlers');
   ipcMain.handle('export-video', handleExportVideo);
-  ipcMain.on('export-cancel', handleExportCancel);
+  ipcMain.handle('export-cancel', handleExportCancel);
   console.log('[Export] Export IPC handlers registered successfully');
 }
 
@@ -480,7 +480,7 @@ function parseFFmpegProgress(
 /**
  * Handle export cancellation from renderer
  */
-function handleExportCancel(): void {
+function handleExportCancel(): { success: boolean } {
   if (activeExportProcess) {
     console.log('[Export] Cancelling export...');
 
@@ -505,5 +505,9 @@ function handleExportCancel(): void {
     if (mainWindow) {
       mainWindow.webContents.send('export-cancelled');
     }
+
+    return { success: true };
   }
+
+  return { success: false };
 }
