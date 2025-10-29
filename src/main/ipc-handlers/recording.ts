@@ -15,6 +15,8 @@ import {
   StopRecordingResponse,
   CancelRecordingRequest,
   CancelRecordingResponse,
+  EncodeWebcamRecordingRequest,
+  EncodeWebcamRecordingResponse,
 } from '../../types/recording';
 import {
   getAvailableScreens,
@@ -25,9 +27,9 @@ import {
   setFinalMp4Path,
   getRecordingSession,
   cleanupOldRecordings,
+  setWebcamRecordingStatus,
 } from '../services/screenRecordingService';
-import { convertWebmToMp4 } from '../services/ffmpeg-service';
-import { executeFFprobe } from '../services/ffmpeg-service';
+import { convertWebmToMp4, executeFFmpeg, executeFFprobe } from '../services/ffmpeg-service';
 
 /**
  * Register all recording IPC handlers
@@ -52,6 +54,10 @@ export function registerRecordingHandlers(): void {
 
   // Save recording data from renderer
   ipcMain.handle('recording:save-data', handleSaveRecordingData);
+
+  // Webcam recording handlers (Story S10)
+  ipcMain.handle('recording:encode-webcam', handleEncodeWebcamRecording);
+  ipcMain.handle('recording:set-webcam-status', handleSetWebcamStatus);
 
   // Cleanup old recordings on startup
   cleanupOldRecordings();
@@ -315,5 +321,160 @@ async function getVideoDuration(filePath: string): Promise<number> {
   } catch (error) {
     console.error('[RecordingHandlers] Error getting video duration:', error);
     return 0;
+  }
+}
+
+/**
+ * Get video dimensions using ffprobe
+ */
+async function getVideoDimensions(filePath: string): Promise<{ width: number; height: number }> {
+  try {
+    const args = [
+      '-v', 'error',
+      '-select_streams', 'v:0',
+      '-show_entries', 'stream=width,height',
+      '-of', 'json',
+      filePath,
+    ];
+
+    const result = await executeFFprobe(args);
+    const data = JSON.parse(result.stdout);
+    const stream = data.streams?.[0];
+
+    return {
+      width: stream?.width || 0,
+      height: stream?.height || 0,
+    };
+  } catch (error) {
+    console.error('[RecordingHandlers] Error getting video dimensions:', error);
+    return { width: 0, height: 0 };
+  }
+}
+
+/**
+ * Handle set webcam recording status
+ */
+async function handleSetWebcamStatus(
+  event: IpcMainInvokeEvent,
+  request: { recording: boolean }
+): Promise<{ success: boolean }> {
+  try {
+    console.log('[RecordingHandlers] Setting webcam recording status:', request.recording);
+    setWebcamRecordingStatus(request.recording);
+    return { success: true };
+  } catch (error) {
+    console.error('[RecordingHandlers] Error setting webcam status:', error);
+    return { success: false };
+  }
+}
+
+/**
+ * Handle encode webcam recording request (Story S10)
+ * Converts WebRTC recorded Blob to MP4 using FFmpeg
+ */
+async function handleEncodeWebcamRecording(
+  event: IpcMainInvokeEvent,
+  request: EncodeWebcamRecordingRequest
+): Promise<EncodeWebcamRecordingResponse> {
+  try {
+    console.log('[RecordingHandlers] Encoding webcam recording:', {
+      outputPath: request.outputPath,
+      mimeType: request.mimeType,
+      dimensions: `${request.width}x${request.height}`,
+      blobSize: request.recordedBlob?.length || 0,
+    });
+
+    // Validate request
+    if (!request.recordedBlob || request.recordedBlob.length === 0) {
+      return {
+        success: false,
+        error: 'Invalid recording data: blob is empty',
+      };
+    }
+
+    if (!request.outputPath) {
+      return {
+        success: false,
+        error: 'Output path is required',
+      };
+    }
+
+    // Determine input file extension from mime type
+    const inputExt = request.mimeType.includes('webm') ? 'webm' : 'mp4';
+    const tempInputPath = request.outputPath.replace('.mp4', `-input.${inputExt}`);
+
+    // Write Blob buffer to temp input file
+    console.log('[RecordingHandlers] Writing blob to temp file:', tempInputPath);
+    fs.writeFileSync(tempInputPath, request.recordedBlob);
+
+    // Check if file was written successfully
+    if (!fs.existsSync(tempInputPath)) {
+      return {
+        success: false,
+        error: 'Failed to write temporary input file',
+      };
+    }
+
+    console.log('[RecordingHandlers] Temp file written successfully:', {
+      path: tempInputPath,
+      size: fs.statSync(tempInputPath).size,
+    });
+
+    // Convert to MP4 using FFmpeg
+    console.log('[RecordingHandlers] Converting to MP4...');
+    await convertWebmToMp4(tempInputPath, request.outputPath, 120000); // 2 min timeout
+
+    // Get duration and dimensions from output file
+    const duration = await getVideoDuration(request.outputPath);
+    const dimensions = await getVideoDimensions(request.outputPath);
+
+    // Generate thumbnail (first frame)
+    const thumbnailPath = request.outputPath.replace('.mp4', '-thumb.jpg');
+    try {
+      console.log('[RecordingHandlers] Generating thumbnail...');
+      const thumbnailArgs = [
+        '-i', request.outputPath,
+        '-ss', '0',
+        '-vframes', '1',
+        '-y',
+        thumbnailPath,
+      ];
+      await executeFFmpeg(thumbnailArgs, 10000);
+      console.log('[RecordingHandlers] Thumbnail generated:', thumbnailPath);
+    } catch (error) {
+      console.error('[RecordingHandlers] Error generating thumbnail:', error);
+      // Non-critical error, continue
+    }
+
+    // Cleanup temp input file
+    try {
+      fs.unlinkSync(tempInputPath);
+      console.log('[RecordingHandlers] Deleted temp input file:', tempInputPath);
+    } catch (error) {
+      console.error('[RecordingHandlers] Error deleting temp file:', error);
+      // Non-critical error
+    }
+
+    console.log('[RecordingHandlers] Encoding complete:', {
+      filePath: request.outputPath,
+      duration,
+      dimensions,
+      thumbnailPath: fs.existsSync(thumbnailPath) ? thumbnailPath : undefined,
+    });
+
+    return {
+      success: true,
+      filePath: request.outputPath,
+      duration,
+      width: dimensions.width,
+      height: dimensions.height,
+      thumbnailPath: fs.existsSync(thumbnailPath) ? thumbnailPath : undefined,
+    };
+  } catch (error) {
+    console.error('[RecordingHandlers] Error encoding webcam recording:', error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to encode webcam recording',
+    };
   }
 }
