@@ -14,6 +14,7 @@ interface ExportModalProps {
     errorMessage?: string;
   };
   status: 'validating' | 'exporting' | 'error' | 'complete';
+  outputPath?: string; // Path to the exported file (shown when complete)
 }
 
 /**
@@ -39,6 +40,7 @@ export default function ExportModal({
   onCancel,
   progress,
   status,
+  outputPath,
 }: ExportModalProps): JSX.Element | null {
   if (!isOpen) return null;
 
@@ -87,6 +89,14 @@ export default function ExportModal({
         {/* Error Message (only show if error) */}
         {status === 'error' && errorMessage && (
           <p style={styles.errorMessage}>{errorMessage}</p>
+        )}
+
+        {/* File Location (only show when complete) */}
+        {status === 'complete' && outputPath && (
+          <div style={styles.fileLocationContainer}>
+            <p style={styles.fileLocationLabel}>Saved to:</p>
+            <p style={styles.fileLocationPath}>{outputPath}</p>
+          </div>
         )}
 
         {/* Cancel/Close Button */}
@@ -177,6 +187,26 @@ const styles: { [key: string]: React.CSSProperties } = {
     backgroundColor: '#2a1a1a',
     borderRadius: '4px',
     border: '1px solid #4a2a2a',
+  },
+  fileLocationContainer: {
+    backgroundColor: '#2a2a2a',
+    padding: '16px',
+    borderRadius: '6px',
+    border: '1px solid #3a3a3a',
+  },
+  fileLocationLabel: {
+    margin: '0 0 8px 0',
+    fontSize: '14px',
+    color: '#b0b0b0',
+    fontWeight: 500,
+    textTransform: 'uppercase',
+  },
+  fileLocationPath: {
+    margin: 0,
+    fontSize: '13px',
+    color: '#4a9eff',
+    wordBreak: 'break-all',
+    fontFamily: 'monospace',
   },
   cancelButton: {
     padding: '12px 24px',

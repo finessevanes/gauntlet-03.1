@@ -6,6 +6,11 @@
 
 import React, { useEffect, useState } from 'react';
 import { ScreenInfo } from '../types/recording';
+import { usePermissionModal } from '../context/PermissionContext';
+import { checkScreenRecordingPermission } from '../utils/permissionChecks';
+import { usePermissionGate } from '../hooks/usePermissionGate';
+import { openPermissionModalWithCallbacks } from '../utils/permissionModalHelper';
+import { useMediaPermissions } from '../hooks/useMediaPermissions';
 
 interface RecordScreenDialogProps {
   isOpen: boolean;
@@ -18,109 +23,74 @@ export const RecordScreenDialog: React.FC<RecordScreenDialogProps> = ({
   onClose,
   onStartRecording,
 }) => {
+  const permissionModal = usePermissionModal();
+  const shouldRender = usePermissionGate(isOpen);
+
+  // Use the consolidated media permissions hook
+  const {
+    microphonePermissionStatus,
+    audioDevices,
+    checkMicrophonePermission,
+    requestMicrophonePermission,
+    enumerateAudioDevices,
+  } = useMediaPermissions({ checkMicrophone: true, autoEnumerate: false });
+
   const [screens, setScreens] = useState<ScreenInfo[]>([]);
   const [selectedScreenId, setSelectedScreenId] = useState<string>('');
   const [audioEnabled, setAudioEnabled] = useState<boolean>(true);
-  const [audioDevices, setAudioDevices] = useState<MediaDeviceInfo[]>([]);
   const [selectedAudioDeviceId, setSelectedAudioDeviceId] = useState<string>('default');
-  const [permissionStatus, setPermissionStatus] = useState<'prompt' | 'granted' | 'denied'>('prompt');
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (isOpen) {
-      fetchScreens();
-      checkMicrophonePermission();
-      enumerateAudioDevices();
+      initializeDialog();
     }
   }, [isOpen]);
 
   /**
-   * Check microphone permission status
+   * Initialize dialog by checking permissions first
    */
-  const checkMicrophonePermission = async () => {
-    try {
-      // Check if Permissions API is available
-      if (navigator.permissions && navigator.permissions.query) {
-        const result = await navigator.permissions.query({ name: 'microphone' as PermissionName });
-        console.log('[RecordScreenDialog] Microphone permission status:', result.state);
-        setPermissionStatus(result.state as 'prompt' | 'granted' | 'denied');
+  const initializeDialog = async () => {
+    console.log('[RecordScreenDialog] Initializing dialog - checking permissions upfront...');
+    setLoading(true);
 
-        // Listen for permission changes
-        result.onchange = () => {
-          console.log('[RecordScreenDialog] Microphone permission changed to:', result.state);
-          setPermissionStatus(result.state as 'prompt' | 'granted' | 'denied');
-          enumerateAudioDevices();
-        };
+    // Check screen recording permission FIRST
+    const screenPermissionCheck = await checkScreenRecordingPermission();
+
+    if (!screenPermissionCheck.granted) {
+      console.log('[RecordScreenDialog] Screen recording permission denied');
+      setLoading(false);
+      openPermissionModalWithCallbacks({
+        permissionModal,
+        type: 'screen',
+        errorMessage: screenPermissionCheck.error || 'Screen recording permission denied',
+        onRetry: initializeDialog,
+        onCancel: onClose,
+      });
+      return;
+    }
+
+    // If permissions OK, THEN fetch screens and audio setup
+    console.log('[RecordScreenDialog] Screen recording permission granted, now fetching screens...');
+    await fetchScreens();
+    checkMicrophonePermission();
+    enumerateAudioDevices();
+  };
+
+  /**
+   * Auto-select default audio device when devices are enumerated
+   */
+  useEffect(() => {
+    if (audioDevices.length > 0) {
+      const defaultDevice = audioDevices.find((d) => d.deviceId === 'default');
+      if (defaultDevice) {
+        setSelectedAudioDeviceId('default');
       } else {
-        console.log('[RecordScreenDialog] Permissions API not available');
-        // Try to enumerate devices to infer permission status
-        const devices = await navigator.mediaDevices.enumerateDevices();
-        const audioInputs = devices.filter((d) => d.kind === 'audioinput');
-
-        // If we have device labels, permission is granted
-        if (audioInputs.length > 0 && audioInputs[0].label) {
-          setPermissionStatus('granted');
-        } else {
-          setPermissionStatus('prompt');
-        }
+        setSelectedAudioDeviceId(audioDevices[0].deviceId);
       }
-    } catch (err) {
-      console.error('[RecordScreenDialog] Error checking microphone permission:', err);
-      setPermissionStatus('prompt');
     }
-  };
-
-  /**
-   * Enumerate audio input devices
-   */
-  const enumerateAudioDevices = async () => {
-    try {
-      console.log('[RecordScreenDialog] Enumerating audio devices...');
-      const devices = await navigator.mediaDevices.enumerateDevices();
-      const audioInputs = devices.filter((device) => device.kind === 'audioinput');
-
-      console.log(`[RecordScreenDialog] Found ${audioInputs.length} audio input device(s)`);
-      setAudioDevices(audioInputs);
-
-      // Auto-select default device
-      if (audioInputs.length > 0) {
-        const defaultDevice = audioInputs.find((d) => d.deviceId === 'default');
-        if (defaultDevice) {
-          setSelectedAudioDeviceId('default');
-        } else {
-          setSelectedAudioDeviceId(audioInputs[0].deviceId);
-        }
-      }
-    } catch (err) {
-      console.error('[RecordScreenDialog] Error enumerating audio devices:', err);
-      setAudioDevices([]);
-    }
-  };
-
-  /**
-   * Request microphone permission
-   */
-  const requestMicrophonePermission = async () => {
-    try {
-      console.log('[RecordScreenDialog] Requesting microphone permission...');
-
-      // Request permission by calling getUserMedia
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-
-      // Stop the stream immediately (we just needed it to trigger permission)
-      stream.getTracks().forEach((track) => track.stop());
-
-      console.log('[RecordScreenDialog] Microphone permission granted');
-
-      // Refresh permission status and device list
-      await checkMicrophonePermission();
-      await enumerateAudioDevices();
-    } catch (err) {
-      console.error('[RecordScreenDialog] Microphone permission denied:', err);
-      setPermissionStatus('denied');
-    }
-  };
+  }, [audioDevices]);
 
   const fetchScreens = async () => {
     setLoading(true);
@@ -131,6 +101,7 @@ export const RecordScreenDialog: React.FC<RecordScreenDialogProps> = ({
       const response = await window.electron.recording.getScreens();
 
       if (response.error) {
+        // Permission errors should have been caught upfront, so this is a different error
         setError(response.error);
         setScreens([]);
       } else {
@@ -185,7 +156,7 @@ export const RecordScreenDialog: React.FC<RecordScreenDialogProps> = ({
     onStartRecording(selectedScreenId, audioEnabled, audioEnabled ? selectedAudioDeviceId : undefined);
   };
 
-  if (!isOpen) {
+  if (!shouldRender) {
     return null;
   }
 
@@ -284,30 +255,30 @@ export const RecordScreenDialog: React.FC<RecordScreenDialogProps> = ({
                       <span
                         style={{
                           ...styles.permissionBadge,
-                          ...(permissionStatus === 'granted'
+                          ...(microphonePermissionStatus === 'granted'
                             ? styles.permissionGranted
-                            : permissionStatus === 'denied'
+                            : microphonePermissionStatus === 'denied'
                             ? styles.permissionDenied
                             : styles.permissionPrompt),
                         }}
                       >
-                        {permissionStatus === 'granted'
+                        {microphonePermissionStatus === 'granted'
                           ? '✓ Granted'
-                          : permissionStatus === 'denied'
+                          : microphonePermissionStatus === 'denied'
                           ? '✗ Denied'
                           : '○ Not Requested'}
                       </span>
                     </div>
 
                     {/* Request Permission Button */}
-                    {permissionStatus !== 'granted' && (
+                    {microphonePermissionStatus !== 'granted' && (
                       <div style={styles.permissionAction}>
-                        {permissionStatus === 'prompt' && (
+                        {microphonePermissionStatus === 'prompt' && (
                           <button style={styles.requestButton} onClick={requestMicrophonePermission}>
                             Request Microphone Permission
                           </button>
                         )}
-                        {permissionStatus === 'denied' && (
+                        {microphonePermissionStatus === 'denied' && (
                           <div style={styles.permissionHelp}>
                             <p style={styles.permissionHelpText}>
                               Microphone access was denied. To enable:
@@ -323,7 +294,7 @@ export const RecordScreenDialog: React.FC<RecordScreenDialogProps> = ({
                     )}
 
                     {/* Microphone Selection Dropdown */}
-                    {permissionStatus === 'granted' && audioDevices.length > 0 && (
+                    {microphonePermissionStatus === 'granted' && audioDevices.length > 0 && (
                       <div style={styles.microphoneSelector}>
                         <label style={styles.microphoneLabel}>
                           <span style={styles.microphoneLabelText}>Microphone:</span>
@@ -334,7 +305,7 @@ export const RecordScreenDialog: React.FC<RecordScreenDialogProps> = ({
                           >
                             {audioDevices.map((device) => (
                               <option key={device.deviceId} value={device.deviceId}>
-                                {device.label || `Microphone ${device.deviceId.slice(0, 8)}...`}
+                                {device.label}
                               </option>
                             ))}
                           </select>
@@ -342,7 +313,7 @@ export const RecordScreenDialog: React.FC<RecordScreenDialogProps> = ({
                       </div>
                     )}
 
-                    {permissionStatus === 'granted' && audioDevices.length === 0 && (
+                    {microphonePermissionStatus === 'granted' && audioDevices.length === 0 && (
                       <div style={styles.noDevicesMessage}>
                         <p style={styles.noDevicesText}>No microphone devices found</p>
                       </div>
