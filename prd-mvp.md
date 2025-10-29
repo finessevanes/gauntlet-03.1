@@ -182,7 +182,7 @@ Developers and product teams testing desktop media handling capabilities. Post-M
 
 ---
 
-### 6. Preview Player
+### 6. Preview Player ✅ COMPLETE
 
 **REQ-6.1**: Video player displays current frame at playhead position  
 **REQ-6.2**: Playback controls: Play, Pause, Seek bar  
@@ -207,7 +207,7 @@ Developers and product teams testing desktop media handling capabilities. Post-M
 
 ---
 
-### 7. Export
+### 7. Export  ✅ COMPLETE
 
 **REQ-7.1**: Export button triggers `electron.dialog.showSaveDialog()`  
 **REQ-7.2**: Default filename: `Klippy_Export_YYYYMMDD_HHMMSS.mp4`  
