@@ -8,19 +8,25 @@ import React, { useEffect, useState } from 'react';
 
 interface RecordingIndicatorProps {
   onStop: () => void;
+  isStopping?: boolean;
 }
 
-export const RecordingIndicator: React.FC<RecordingIndicatorProps> = ({ onStop }) => {
+export const RecordingIndicator: React.FC<RecordingIndicatorProps> = ({ onStop, isStopping = false }) => {
   const [elapsedSeconds, setElapsedSeconds] = useState<number>(0);
 
   useEffect(() => {
     // Timer to update elapsed time every second
+    // Only run the timer if not stopping
+    if (isStopping) {
+      return;
+    }
+
     const timer = setInterval(() => {
       setElapsedSeconds((prev) => prev + 1);
     }, 1000);
 
     return () => clearInterval(timer);
-  }, []);
+  }, [isStopping]);
 
   const formatTime = (seconds: number): string => {
     const hours = Math.floor(seconds / 3600);
@@ -37,8 +43,16 @@ export const RecordingIndicator: React.FC<RecordingIndicatorProps> = ({ onStop }
           <div style={styles.dot} />
         </div>
         <div style={styles.timer}>{formatTime(elapsedSeconds)}</div>
-        <button style={styles.stopButton} onClick={onStop} title="Stop Recording">
-          ■
+        <button
+          style={{
+            ...styles.stopButton,
+            ...(isStopping ? styles.stopButtonDisabled : {}),
+          }}
+          onClick={onStop}
+          disabled={isStopping}
+          title={isStopping ? 'Processing...' : 'Stop Recording'}
+        >
+          {isStopping ? '...' : '■'}
         </button>
       </div>
       <style>{keyframesCSS}</style>
@@ -106,5 +120,10 @@ const styles = {
     fontWeight: 'bold' as const,
     cursor: 'pointer',
     transition: 'background-color 0.2s',
+  },
+  stopButtonDisabled: {
+    backgroundColor: '#666666',
+    cursor: 'not-allowed',
+    opacity: 0.6,
   },
 };
