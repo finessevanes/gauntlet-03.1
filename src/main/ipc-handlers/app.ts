@@ -3,7 +3,7 @@
  * Handles initialization and FFmpeg validation IPC calls from renderer
  */
 
-import { ipcMain, app } from 'electron';
+import { ipcMain, app, dialog, BrowserWindow } from 'electron';
 import { validateFFmpeg } from '../services/ffmpeg-validator';
 import { loadSession, saveSession } from '../services/session-manager';
 import { AppInitResponse, FFmpegValidationResponse } from '../../types/ipc';
@@ -102,6 +102,18 @@ export function registerAppHandlers(): void {
   ipcMain.on('app:quit', () => {
     console.log('[IPC] app:quit called');
     app.quit();
+  });
+
+  // Handler: dialog:showSaveDialog
+  // Opens save dialog for file export
+  ipcMain.handle('dialog:showSaveDialog', async (event, options) => {
+    console.log('[IPC] dialog:showSaveDialog called');
+    const mainWindow = BrowserWindow.getAllWindows()[0];
+    if (!mainWindow) {
+      return { canceled: true };
+    }
+    const result = await dialog.showSaveDialog(mainWindow, options);
+    return result;
   });
 
   console.log('[IPC] App handlers registered');

@@ -172,6 +172,29 @@ contextBridge.exposeInMainWorld('electron', {
   },
 
   /**
+   * Export API (Story 7: Export to MP4)
+   */
+  export: {
+    /**
+     * Listen for export progress updates
+     */
+    onProgress: (callback: (progress: any) => void) => {
+      const handler = (event: any, progress: any) => callback(progress);
+      ipcRenderer.on('export-progress', handler);
+      return () => ipcRenderer.removeListener('export-progress', handler);
+    },
+
+    /**
+     * Listen for export cancellation
+     */
+    onCancelled: (callback: () => void) => {
+      const handler = () => callback();
+      ipcRenderer.on('export-cancelled', handler);
+      return () => ipcRenderer.removeListener('export-cancelled', handler);
+    },
+  },
+
+  /**
    * Drag & Drop API (Story 2: Video Import)
    * Sets up event listener and callback
    */
@@ -253,6 +276,10 @@ declare global {
       trim: {
         trimClip(clipId: string, inPoint: number, outPoint: number): Promise<import('./types/ipc').TrimClipResponse>;
         resetTrim(clipId: string): Promise<import('./types/ipc').ResetTrimResponse>;
+      };
+      export: {
+        onProgress(callback: (progress: any) => void): () => void;
+        onCancelled(callback: () => void): () => void;
       };
       dragDrop: {
         onDrop(callback: (filePaths: string[]) => void): () => void;
