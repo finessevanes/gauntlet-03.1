@@ -613,10 +613,9 @@ const styles = {
   wrapper: {
     display: 'flex',
     flexDirection: 'column' as const,
+    flex: 1,
+    width: '100%',
     height: '100%',
     backgroundColor: '#0d0d0d',
-    borderRadius: '4px',
-    overflow: 'hidden',
-    border: '1px solid #1f1f1f',
   },
 };

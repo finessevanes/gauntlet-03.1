@@ -62,10 +62,8 @@ const styles = {
   wrapper: {
     position: 'relative' as const,
     width: '100%',
-    height: '100%',
+    flex: 1,
     backgroundColor: '#000',
-    border: '1px solid #222',
-    borderRadius: '4px',
     overflow: 'hidden',
   },
   video: {
