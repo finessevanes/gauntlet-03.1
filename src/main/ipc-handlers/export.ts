@@ -316,6 +316,9 @@ function buildFFmpegCommand(
       filterChain += `,pad=${outputResolution.width}:${outputResolution.height}:(ow-iw)/2:(oh-ih)/2`;
     }
 
+    // Always normalize SAR to 1:1 to prevent concat filter errors
+    filterChain += `,setsar=1`;
+
     // Only apply fps filter if source fps differs from target (30fps)
     const needsFpsConversion = Math.abs(probe.fps - 30) > 0.1; // Allow small floating point difference
     if (needsFpsConversion) {

@@ -10,6 +10,7 @@ import { AppInitResponse } from '../types/ipc';
 import { LoadingScreen } from './LoadingScreen';
 import { ErrorDialog } from './ErrorDialog';
 import { MainLayout } from './MainLayout';
+import { ScreenRecordingTest } from './ScreenRecordingTest';
 
 export const App: React.FC = () => {
   const [loading, setLoading] = useState(true);

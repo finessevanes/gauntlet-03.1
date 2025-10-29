@@ -231,3 +231,44 @@ export function getFFmpegPath(): string {
 export function getFFprobePath(): string {
   return FFPROBE_PATH;
 }
+
+/**
+ * Convert WebM to MP4 H.264
+ * Used for screen recording: MediaRecorder outputs WebM, convert to MP4 for compatibility
+ * Story S9: Screen Recording
+ * @param inputPath - Path to input WebM file
+ * @param outputPath - Path to output MP4 file
+ * @param timeoutMs - Timeout in milliseconds (default: 60000)
+ * @returns Promise resolving when conversion complete
+ */
+export async function convertWebmToMp4(
+  inputPath: string,
+  outputPath: string,
+  timeoutMs: number = 60000
+): Promise<void> {
+  const args = [
+    '-i', inputPath,
+    '-c:v', 'libx264',      // H.264 video codec
+    '-preset', 'medium',     // Encoding preset (balance speed/quality)
+    '-crf', '23',            // Constant Rate Factor (23 = good quality)
+    '-r', '30',              // Frame rate: 30fps
+    '-c:a', 'aac',           // AAC audio codec
+    '-b:a', '128k',          // Audio bitrate: 128kbps
+    '-y',                    // Overwrite output file if exists
+    outputPath
+  ];
+
+  console.log('[FFmpegService] Converting WebM to MP4:', {
+    input: inputPath,
+    output: outputPath,
+    timeout: timeoutMs
+  });
+
+  try {
+    await executeFFmpeg(args, timeoutMs);
+    console.log('[FFmpegService] Conversion complete:', outputPath);
+  } catch (error) {
+    console.error('[FFmpegService] Conversion failed:', error);
+    throw new Error(`Failed to convert WebM to MP4: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}

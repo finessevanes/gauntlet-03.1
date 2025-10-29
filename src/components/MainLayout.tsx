@@ -5,11 +5,15 @@
 
 import React, { useEffect, useState } from 'react';
 import { ImportButton } from './ImportButton';
+import { RecordScreenButton } from './RecordScreenButton';
+import { RecordScreenDialog } from './RecordScreenDialog';
+import { RecordingIndicator } from './RecordingIndicator';
 import { DragDropZone } from './DragDropZone';
 import { Library } from './Library';
 import { ImportProgressModal } from './ImportProgressModal';
 import { ErrorModal } from './ErrorModal';
 import { useImport } from '../hooks/useImport';
+import { useScreenRecorder } from '../hooks/useScreenRecorder';
 import { Timeline } from './Timeline';
 import { PreviewPlayer } from './PreviewPlayer';
 import ExportModal from './ExportModal';
@@ -17,6 +21,11 @@ import { useSessionStore } from '../store/sessionStore';
 
 export const MainLayout: React.FC = () => {
   const { importProgress, importError, importVideos, openFilePicker, clearImportProgress, clearImportError } = useImport();
+
+  // Screen recording state
+  const { isRecording, startRecording, stopRecording, cancelRecording } = useScreenRecorder();
+  const [isRecordDialogOpen, setIsRecordDialogOpen] = useState(false);
+  const [isStopping, setIsStopping] = useState(false);
 
   // Export state
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
@@ -30,6 +39,58 @@ export const MainLayout: React.FC = () => {
   // Get session data for export
   const clips = useSessionStore((state) => state.clips);
   const timeline = useSessionStore((state) => state.timeline);
+
+  /**
+   * Handle Record Screen button click
+   */
+  const handleRecordClick = () => {
+    setIsRecordDialogOpen(true);
+  };
+
+  /**
+   * Handle start recording from dialog
+   */
+  const handleStartRecording = async (screenId: string, audioEnabled: boolean, audioDeviceId?: string) => {
+    console.log('[MainLayout] Starting recording:', { screenId, audioEnabled, audioDeviceId });
+
+    const sessionId = await startRecording(screenId, audioEnabled, audioDeviceId);
+
+    if (sessionId) {
+      setIsRecordDialogOpen(false);
+      console.log('[MainLayout] Recording started successfully');
+    } else {
+      console.error('[MainLayout] Failed to start recording');
+    }
+  };
+
+  /**
+   * Handle stop recording
+   */
+  const handleStopRecording = async () => {
+    console.log('[MainLayout] Stopping recording...');
+    setIsStopping(true);
+
+    try {
+      const result = await stopRecording();
+
+      if (result.success && result.filePath) {
+        console.log('[MainLayout] Recording stopped. File saved:', result.filePath);
+
+        // Auto-import the recorded video into the library
+        try {
+          console.log('[MainLayout] Auto-importing recorded video...');
+          await importVideos([result.filePath]);
+          console.log('[MainLayout] Recorded video imported successfully');
+        } catch (error) {
+          console.error('[MainLayout] Failed to import recorded video:', error);
+        }
+      } else {
+        console.error('[MainLayout] Failed to stop recording:', result.error);
+      }
+    } finally {
+      setIsStopping(false);
+    }
+  };
 
   /**
    * Handle Export button click
@@ -189,6 +250,16 @@ export const MainLayout: React.FC = () => {
   return (
     <DragDropZone onDrop={importVideos}>
       <div style={styles.container}>
+        {/* Recording Indicator (shown when recording) */}
+        {isRecording && <RecordingIndicator onStop={handleStopRecording} isStopping={isStopping} />}
+
+        {/* Record Screen Dialog */}
+        <RecordScreenDialog
+          isOpen={isRecordDialogOpen}
+          onClose={() => setIsRecordDialogOpen(false)}
+          onStartRecording={handleStartRecording}
+        />
+
         {/* Error Modal */}
         {importError && (
           <ErrorModal
@@ -220,7 +291,10 @@ export const MainLayout: React.FC = () => {
           <div style={styles.libraryWrapper}>
             <div style={styles.panelHeader}>
               <span>Library</span>
-              <ImportButton onClick={openFilePicker} disabled={importProgress.length > 0} />
+              <div style={styles.headerButtons}>
+                <RecordScreenButton onClick={handleRecordClick} disabled={isRecording} />
+                <ImportButton onClick={openFilePicker} disabled={importProgress.length > 0 || isRecording} />
+              </div>
             </div>
             <Library />
           </div>
@@ -302,6 +376,11 @@ const styles = {
     color: '#999',
     display: 'flex',
     justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  headerButtons: {
+    display: 'flex',
+    gap: '8px',
     alignItems: 'center',
   },
   exportButton: {

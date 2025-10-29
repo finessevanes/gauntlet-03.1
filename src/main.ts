@@ -7,6 +7,7 @@ import { registerLibraryHandlers } from './main/ipc-handlers/library';
 import { registerTimelineHandlers } from './main/ipc-handlers/timeline';
 import { registerTrimHandlers } from './main/ipc-handlers/trim';
 import { registerExportHandlers } from './main/ipc-handlers/export';
+import { registerRecordingHandlers } from './main/ipc-handlers/recording';
 
 // Handle creating/removing shortcuts on Windows when installing/uninstalling.
 if (started) {
@@ -59,6 +60,7 @@ app.on('ready', () => {
   registerTimelineHandlers();
   registerTrimHandlers();
   registerExportHandlers();
+  registerRecordingHandlers(); // S9: Screen Recording
 
   // Create the main window
   createWindow();

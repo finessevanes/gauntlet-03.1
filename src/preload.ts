@@ -20,6 +20,15 @@ import {
   ResetTrimResponse,
 } from './types/ipc';
 import { TimelineClip } from './types/session';
+import {
+  GetScreensResponse,
+  StartRecordingRequest,
+  StartRecordingResponse,
+  StopRecordingRequest,
+  StopRecordingResponse,
+  CancelRecordingRequest,
+  CancelRecordingResponse,
+} from './types/recording';
 
 // Expose electron APIs to renderer process
 contextBridge.exposeInMainWorld('electron', {
@@ -195,6 +204,53 @@ contextBridge.exposeInMainWorld('electron', {
   },
 
   /**
+   * Recording API (Story S9: Screen Recording)
+   */
+  recording: {
+    /**
+     * Get available screens for recording
+     */
+    getScreens: (): Promise<GetScreensResponse> => {
+      return ipcRenderer.invoke('recording:get-screens');
+    },
+
+    /**
+     * Create a recording session
+     */
+    createSession: (screenSourceId: string, audioEnabled: boolean): Promise<{ success: boolean; sessionId?: string; error?: string }> => {
+      return ipcRenderer.invoke('recording:create-session', { screenSourceId, audioEnabled });
+    },
+
+    /**
+     * Start screen recording
+     */
+    startRecording: (request: StartRecordingRequest): Promise<StartRecordingResponse> => {
+      return ipcRenderer.invoke('recording:start', request);
+    },
+
+    /**
+     * Stop screen recording
+     */
+    stopRecording: (request: StopRecordingRequest): Promise<StopRecordingResponse> => {
+      return ipcRenderer.invoke('recording:stop', request);
+    },
+
+    /**
+     * Cancel screen recording
+     */
+    cancelRecording: (request: CancelRecordingRequest): Promise<CancelRecordingResponse> => {
+      return ipcRenderer.invoke('recording:cancel', request);
+    },
+
+    /**
+     * Save recording data to file
+     */
+    saveRecordingData: (sessionId: string, data: Uint8Array): Promise<{ success: boolean; tempWebmPath?: string; error?: string }> => {
+      return ipcRenderer.invoke('recording:save-data', { sessionId, data });
+    },
+  },
+
+  /**
    * Drag & Drop API (Story 2: Video Import)
    * Sets up event listener and callback
    */
@@ -280,6 +336,14 @@ declare global {
       export: {
         onProgress(callback: (progress: any) => void): () => void;
         onCancelled(callback: () => void): () => void;
+      };
+      recording: {
+        getScreens(): Promise<import('./types/recording').GetScreensResponse>;
+        createSession(screenSourceId: string, audioEnabled: boolean): Promise<{ success: boolean; sessionId?: string; error?: string }>;
+        startRecording(request: import('./types/recording').StartRecordingRequest): Promise<import('./types/recording').StartRecordingResponse>;
+        stopRecording(request: import('./types/recording').StopRecordingRequest): Promise<import('./types/recording').StopRecordingResponse>;
+        cancelRecording(request: import('./types/recording').CancelRecordingRequest): Promise<import('./types/recording').CancelRecordingResponse>;
+        saveRecordingData(sessionId: string, data: Uint8Array): Promise<{ success: boolean; tempWebmPath?: string; error?: string }>;
       };
       dragDrop: {
         onDrop(callback: (filePaths: string[]) => void): () => void;
