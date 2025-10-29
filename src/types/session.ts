@@ -21,6 +21,10 @@ export interface Clip {
   frameRate: number;          // Frames per second (e.g., 30)
   codec: string;              // Codec name (e.g., "h264")
   bitrate?: number;           // Optional: bits per second (e.g., 5000000)
+
+  // Story S9: Screen Recording
+  source?: 'import' | 'recording';  // Track if recorded in-app (default: 'import')
+  recordedAt?: number;              // Timestamp when recorded (ms since epoch)
 }
 
 export interface TimelineClip {
