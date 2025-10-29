@@ -6,6 +6,7 @@
 import { spawn } from 'child_process';
 import { existsSync } from 'fs';
 import { FFmpegValidationResponse } from '../../types/ipc';
+import { getFFmpegPath } from './ffmpeg-service';
 
 /**
  * Validates FFmpeg binary availability and functionality
@@ -15,7 +16,7 @@ import { FFmpegValidationResponse } from '../../types/ipc';
 export async function validateFFmpeg(): Promise<FFmpegValidationResponse> {
   try {
     // Get FFmpeg path from ffmpeg-static package
-    const ffmpegPath = require('ffmpeg-static');
+    const ffmpegPath = getFFmpegPath();
 
     // Check if binary exists at the specified path
     if (!ffmpegPath || !existsSync(ffmpegPath)) {

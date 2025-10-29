@@ -8,8 +8,18 @@ import { spawn, ChildProcess } from 'child_process';
 import ffmpegStatic from 'ffmpeg-static';
 import ffprobeStatic from 'ffprobe-static';
 
-const FFMPEG_PATH = ffmpegStatic as string;
-const FFPROBE_PATH = ffprobeStatic.path;
+export function resolveBinaryPath(binaryPath: string | null | undefined): string {
+  if (!binaryPath) {
+    throw new Error('FFmpeg binary path is not available');
+  }
+
+  return binaryPath.includes('app.asar')
+    ? binaryPath.replace('app.asar', 'app.asar.unpacked')
+    : binaryPath;
+}
+
+const FFMPEG_PATH = resolveBinaryPath(ffmpegStatic as string | null);
+const FFPROBE_PATH = resolveBinaryPath(ffprobeStatic.path);
 
 export interface FFmpegResult {
   stdout: string;

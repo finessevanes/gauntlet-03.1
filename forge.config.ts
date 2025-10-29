@@ -6,10 +6,42 @@ import { MakerRpm } from '@electron-forge/maker-rpm';
 import { VitePlugin } from '@electron-forge/plugin-vite';
 import { FusesPlugin } from '@electron-forge/plugin-fuses';
 import { FuseV1Options, FuseVersion } from '@electron/fuses';
+import { promises as fs } from 'node:fs';
+import path from 'node:path';
+
+const STATIC_DEPENDENCIES = ['ffmpeg-static', 'ffprobe-static'] as const;
+
+async function copyStaticDependency(buildPath: string, moduleName: typeof STATIC_DEPENDENCIES[number]) {
+  const sourcePath = path.resolve(__dirname, 'node_modules', moduleName);
+  const destinationPath = path.join(buildPath, 'node_modules', moduleName);
+
+  await fs.rm(destinationPath, { recursive: true, force: true });
+  await fs.mkdir(path.dirname(destinationPath), { recursive: true });
+  await fs.cp(sourcePath, destinationPath, { recursive: true, force: true });
+}
+
+async function copyStaticDependencies(buildPath: string) {
+  for (const moduleName of STATIC_DEPENDENCIES) {
+    await copyStaticDependency(buildPath, moduleName);
+  }
+}
 
 const config: ForgeConfig = {
   packagerConfig: {
-    asar: true,
+    asar: {
+      unpack: '**/node_modules/{ffmpeg-static,ffprobe-static}/**',
+    },
+    afterCopy: [
+      async (buildPath, electronVersion, platform, arch, done) => {
+        try {
+          await copyStaticDependencies(buildPath);
+          done();
+        } catch (error) {
+          const message = error instanceof Error ? error : new Error(String(error));
+          done(message);
+        }
+      },
+    ],
   },
   rebuildConfig: {},
   makers: [
