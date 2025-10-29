@@ -25,6 +25,7 @@ export const MainLayout: React.FC = () => {
   // Screen recording state
   const { isRecording, startRecording, stopRecording, cancelRecording } = useScreenRecorder();
   const [isRecordDialogOpen, setIsRecordDialogOpen] = useState(false);
+  const [isStopping, setIsStopping] = useState(false);
 
   // Export state
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
@@ -67,22 +68,27 @@ export const MainLayout: React.FC = () => {
    */
   const handleStopRecording = async () => {
     console.log('[MainLayout] Stopping recording...');
+    setIsStopping(true);
 
-    const result = await stopRecording();
+    try {
+      const result = await stopRecording();
 
-    if (result.success && result.filePath) {
-      console.log('[MainLayout] Recording stopped. File saved:', result.filePath);
+      if (result.success && result.filePath) {
+        console.log('[MainLayout] Recording stopped. File saved:', result.filePath);
 
-      // Auto-import the recorded video into the library
-      try {
-        console.log('[MainLayout] Auto-importing recorded video...');
-        await importVideos([result.filePath]);
-        console.log('[MainLayout] Recorded video imported successfully');
-      } catch (error) {
-        console.error('[MainLayout] Failed to import recorded video:', error);
+        // Auto-import the recorded video into the library
+        try {
+          console.log('[MainLayout] Auto-importing recorded video...');
+          await importVideos([result.filePath]);
+          console.log('[MainLayout] Recorded video imported successfully');
+        } catch (error) {
+          console.error('[MainLayout] Failed to import recorded video:', error);
+        }
+      } else {
+        console.error('[MainLayout] Failed to stop recording:', result.error);
       }
-    } else {
-      console.error('[MainLayout] Failed to stop recording:', result.error);
+    } finally {
+      setIsStopping(false);
     }
   };
 
@@ -245,7 +251,7 @@ export const MainLayout: React.FC = () => {
     <DragDropZone onDrop={importVideos}>
       <div style={styles.container}>
         {/* Recording Indicator (shown when recording) */}
-        {isRecording && <RecordingIndicator onStop={handleStopRecording} />}
+        {isRecording && <RecordingIndicator onStop={handleStopRecording} isStopping={isStopping} />}
 
         {/* Record Screen Dialog */}
         <RecordScreenDialog
