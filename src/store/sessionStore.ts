@@ -4,7 +4,7 @@
  */
 
 import { create } from 'zustand';
-import { Session, Clip, Timeline } from '../types/session';
+import { Session, Clip, Timeline, Track } from '../types/session';
 
 interface SessionState {
   // Session data
@@ -17,6 +17,9 @@ interface SessionState {
   // UI state - selected clip (only one can be selected across library and timeline)
   selectedClipId: string | null;
   selectedClipSource: 'library' | 'timeline' | null;
+
+  // UI state - selected track (S12)
+  selectedTrackId: string | null;
 
   // Preview playback state (not persisted to disk)
   isPlaying: boolean;
@@ -37,6 +40,13 @@ interface SessionState {
   setPreviewSource: (source: 'timeline' | 'library', options?: { clipId?: string | null; resetPlayhead?: boolean }) => void;
   resetSession: () => void;
   clearLibrary: () => void;
+
+  // Track actions (S12)
+  addTrack: (track: Track) => void;
+  removeTrack: (trackId: string) => void;
+  updateTrack: (trackId: string, updates: Partial<Track>) => void;
+  reorderTracks: (trackIds: string[]) => void;
+  setSelectedTrack: (trackId: string | null) => void;
 }
 
 // Default empty state
@@ -45,12 +55,14 @@ const defaultState = {
   timeline: {
     clips: [],
     duration: 0,
+    tracks: [],
   },
   zoomLevel: 100, // Auto-fit will be calculated in Timeline component
   playheadPosition: 0,
   scrollPosition: 0,
   selectedClipId: null,
   selectedClipSource: null,
+  selectedTrackId: null,
   isPlaying: false,
   previewSource: 'timeline' as const,
   previewClipId: null,
@@ -184,4 +196,131 @@ export const useSessionStore = create<SessionState>((set) => ({
 
     return newState;
   }),
+
+  // Add a new track (S12)
+  addTrack: (track: Track) => set((state) => {
+    const newTimeline = {
+      ...state.timeline,
+      tracks: [...state.timeline.tracks, track],
+    };
+
+    // Persist to backend
+    const session = {
+      version: '1.0.0',
+      clips: state.clips,
+      timeline: newTimeline,
+      zoomLevel: state.zoomLevel,
+      playheadPosition: state.playheadPosition,
+      scrollPosition: state.scrollPosition,
+      lastModified: Date.now(),
+    };
+
+    window.electron.timeline.saveSession(session).catch((err) => {
+      console.error('[Store] Failed to save session after adding track:', err);
+    });
+
+    return { timeline: newTimeline };
+  }),
+
+  // Remove a track and all clips on it (S12)
+  removeTrack: (trackId: string) => set((state) => {
+    const newTimeline = {
+      ...state.timeline,
+      tracks: state.timeline.tracks.filter(t => t.id !== trackId),
+      clips: state.timeline.clips.filter(c => c.trackId !== trackId),
+    };
+
+    // Recalculate duration
+    newTimeline.duration = newTimeline.clips.reduce((total, tc) => {
+      const clip = state.clips.find(c => c.id === tc.clipId);
+      return total + (clip ? (clip.outPoint - clip.inPoint) : 0);
+    }, 0);
+
+    // Persist to backend
+    const session = {
+      version: '1.0.0',
+      clips: state.clips,
+      timeline: newTimeline,
+      zoomLevel: state.zoomLevel,
+      playheadPosition: state.playheadPosition,
+      scrollPosition: state.scrollPosition,
+      lastModified: Date.now(),
+    };
+
+    window.electron.timeline.saveSession(session).catch((err) => {
+      console.error('[Store] Failed to save session after removing track:', err);
+    });
+
+    return { timeline: newTimeline };
+  }),
+
+  // Update track properties (S12)
+  updateTrack: (trackId: string, updates: Partial<Track>) => set((state) => {
+    const newTracks = state.timeline.tracks.map(t => {
+      if (t.id === trackId) {
+        return { ...t, ...updates };
+      }
+      // If solo is enabled, disable solo on other tracks
+      if (updates.solo === true && t.id !== trackId) {
+        return { ...t, solo: false };
+      }
+      return t;
+    });
+
+    const newTimeline = {
+      ...state.timeline,
+      tracks: newTracks,
+    };
+
+    // Persist to backend
+    const session = {
+      version: '1.0.0',
+      clips: state.clips,
+      timeline: newTimeline,
+      zoomLevel: state.zoomLevel,
+      playheadPosition: state.playheadPosition,
+      scrollPosition: state.scrollPosition,
+      lastModified: Date.now(),
+    };
+
+    window.electron.timeline.saveSession(session).catch((err) => {
+      console.error('[Store] Failed to save session after updating track:', err);
+    });
+
+    return { timeline: newTimeline };
+  }),
+
+  // Reorder tracks (S12)
+  reorderTracks: (trackIds: string[]) => set((state) => {
+    const trackMap = new Map(state.timeline.tracks.map(t => [t.id, t]));
+    const reorderedTracks = trackIds.map((id, index) => ({
+      ...trackMap.get(id)!,
+      zIndex: index,
+    }));
+
+    const newTimeline = {
+      ...state.timeline,
+      tracks: reorderedTracks,
+    };
+
+    // Persist to backend
+    const session = {
+      version: '1.0.0',
+      clips: state.clips,
+      timeline: newTimeline,
+      zoomLevel: state.zoomLevel,
+      playheadPosition: state.playheadPosition,
+      scrollPosition: state.scrollPosition,
+      lastModified: Date.now(),
+    };
+
+    window.electron.timeline.saveSession(session).catch((err) => {
+      console.error('[Store] Failed to save session after reordering tracks:', err);
+    });
+
+    return { timeline: newTimeline };
+  }),
+
+  // Set selected track (S12)
+  setSelectedTrack: (trackId: string | null) => set({ selectedTrackId: trackId }),
 }));
