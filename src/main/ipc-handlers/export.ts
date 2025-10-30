@@ -8,6 +8,8 @@ import { ChildProcess } from 'child_process';
 import * as fs from 'fs';
 import { spawnFFmpeg, spawnFFprobe, getFFmpegPath } from '../services/ffmpeg-service';
 import { Clip } from '../../types/session';
+import { ExportPreset } from '../../types/export';
+import * as PresetManager from '../services/preset-manager';
 
 /**
  * Export request from renderer
@@ -18,6 +20,7 @@ interface ExportRequest {
     clips: Clip[];
     totalDuration: number;
   };
+  preset?: ExportPreset; // Story 14: Advanced Export Options
 }
 
 /**
@@ -70,6 +73,11 @@ export function registerExportHandlers(): void {
   console.log('[Export] Registering export IPC handlers');
   ipcMain.handle('export-video', handleExportVideo);
   ipcMain.handle('export-cancel', handleExportCancel);
+  // Story 14: Advanced Export Options
+  ipcMain.handle('export-get-presets', handleGetPresets);
+  ipcMain.handle('export-save-custom-preset', handleSaveCustomPreset);
+  ipcMain.handle('export-delete-custom-preset', handleDeleteCustomPreset);
+  ipcMain.handle('export-set-default-preset', handleSetDefaultPreset);
   console.log('[Export] Export IPC handlers registered successfully');
 }
 
@@ -128,15 +136,37 @@ async function handleExportVideo(
       };
     }
 
-    // Determine output resolution (max of all clips, capped at 1080p)
-    const outputResolution = determineOutputResolution(probeResults);
+    // Determine output resolution (from preset if provided, otherwise max of clips)
+    let outputResolution: { width: number; height: number };
+    let outputFrameRate: number;
+    let outputBitrate: string;
+
+    if (request.preset) {
+      // Use preset settings (Story 14: Advanced Export Options)
+      outputResolution = request.preset.resolution;
+      outputFrameRate = request.preset.frameRate;
+      outputBitrate = `${request.preset.bitrate}M`;
+      console.log('[Export] Using preset:', request.preset.name, {
+        resolution: outputResolution,
+        frameRate: outputFrameRate,
+        bitrate: outputBitrate,
+      });
+    } else {
+      // Default behavior: determine from clips
+      outputResolution = determineOutputResolution(probeResults);
+      outputFrameRate = 30;
+      outputBitrate = '8M';
+      console.log('[Export] Using default settings (no preset)');
+    }
 
     // Build FFmpeg command
     const ffmpegArgs = buildFFmpegCommand(
       timeline.clips,
       outputPath,
       outputResolution,
-      probeResults
+      probeResults,
+      outputFrameRate,
+      outputBitrate
     );
 
     // Log command for debugging
@@ -282,12 +312,15 @@ function determineOutputResolution(probeResults: VideoProbeResult[]): { width: n
 /**
  * Build FFmpeg command arguments with trim + concat filters
  * Now with conditional scaling and FPS filtering for better performance
+ * Story 14: Now accepts preset-specific frameRate and bitrate
  */
 function buildFFmpegCommand(
   clips: Clip[],
   outputPath: string,
   outputResolution: { width: number; height: number },
-  probeResults: VideoProbeResult[]
+  probeResults: VideoProbeResult[],
+  outputFrameRate: number = 30,
+  outputBitrate: string = '8M'
 ): string[] {
   const args: string[] = [];
 
@@ -319,10 +352,10 @@ function buildFFmpegCommand(
     // Always normalize SAR to 1:1 to prevent concat filter errors
     filterChain += `,setsar=1`;
 
-    // Only apply fps filter if source fps differs from target (30fps)
-    const needsFpsConversion = Math.abs(probe.fps - 30) > 0.1; // Allow small floating point difference
+    // Only apply fps filter if source fps differs from target
+    const needsFpsConversion = Math.abs(probe.fps - outputFrameRate) > 0.1; // Allow small floating point difference
     if (needsFpsConversion) {
-      filterChain += `,fps=30`;
+      filterChain += `,fps=${outputFrameRate}`;
     }
 
     // Add output label
@@ -359,8 +392,8 @@ function buildFFmpegCommand(
   args.push(
     '-c:v', 'libx264',
     '-preset', 'fast',
-    '-crf', '23',
-    '-r', '30',
+    '-b:v', outputBitrate, // Story 14: Use preset bitrate
+    '-r', outputFrameRate.toString(), // Story 14: Use preset frame rate
     '-c:a', 'aac',
     '-b:a', '128k',
   );
@@ -512,4 +545,68 @@ function handleExportCancel(): { success: boolean } {
   }
 
   return { success: false };
+}
+
+/**
+ * Get all presets (built-in + custom) - Story 14: Advanced Export Options
+ */
+function handleGetPresets(): { presets: ExportPreset[]; defaultPresetId: string | null } {
+  console.log('[Export] Getting all presets');
+  try {
+    const presets = PresetManager.loadPresets();
+    const defaultPresetId = PresetManager.getDefaultPresetId();
+    console.log('[Export] Loaded', presets.length, 'presets');
+    return { presets, defaultPresetId };
+  } catch (error) {
+    console.error('[Export] Failed to get presets:', error);
+    return { presets: [], defaultPresetId: null };
+  }
+}
+
+/**
+ * Save a custom preset - Story 14: Advanced Export Options
+ */
+function handleSaveCustomPreset(
+  event: Electron.IpcMainInvokeEvent,
+  args: { preset: ExportPreset }
+): { success: boolean; error?: string } {
+  console.log('[Export] Saving custom preset:', args.preset.name);
+  try {
+    return PresetManager.saveCustomPreset(args.preset);
+  } catch (error) {
+    console.error('[Export] Failed to save custom preset:', error);
+    return { success: false, error: error.message };
+  }
+}
+
+/**
+ * Delete a custom preset - Story 14: Advanced Export Options
+ */
+function handleDeleteCustomPreset(
+  event: Electron.IpcMainInvokeEvent,
+  args: { presetId: string }
+): { success: boolean; error?: string } {
+  console.log('[Export] Deleting custom preset:', args.presetId);
+  try {
+    return PresetManager.deleteCustomPreset(args.presetId);
+  } catch (error) {
+    console.error('[Export] Failed to delete custom preset:', error);
+    return { success: false, error: error.message };
+  }
+}
+
+/**
+ * Set default preset - Story 14: Advanced Export Options
+ */
+function handleSetDefaultPreset(
+  event: Electron.IpcMainInvokeEvent,
+  args: { presetId: string | null }
+): { success: boolean; error?: string } {
+  console.log('[Export] Setting default preset:', args.presetId);
+  try {
+    return PresetManager.setDefaultPresetId(args.presetId);
+  } catch (error) {
+    console.error('[Export] Failed to set default preset:', error);
+    return { success: false, error: error.message };
+  }
 }
