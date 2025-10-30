@@ -69,24 +69,42 @@ export const Timeline: React.FC = () => {
         // Get current trim overrides or initialize empty array
         const currentOverrides = timeline.trimOverrides || [];
 
-        // Recalculate timeline duration using trim overrides
+        // Build new overrides array - replace existing override for this instance or add new one
+        const updatedOverrides = currentOverrides.filter(o => o.instanceId !== instanceId);
+        updatedOverrides.push(result.override);
+
+        console.log('[Timeline] Updated overrides:', {
+          instanceId: instanceId.substring(0, 8),
+          totalOverrides: updatedOverrides.length,
+          allOverrideIds: updatedOverrides.map(o => o.instanceId.substring(0, 8)),
+        });
+
+        // Recalculate timeline duration using updated overrides
         const newDuration = timeline.clips.reduce((total, tc) => {
           const clip = clips.find(c => c.id === tc.clipId);
           if (!clip) return total;
 
           // Get trim points: use override if exists, otherwise use clip defaults
-          const override = currentOverrides.find(o => o.instanceId === tc.instanceId);
+          const override = updatedOverrides.find(o => o.instanceId === tc.instanceId);
           const clipInPoint = override?.inPoint ?? clip.inPoint ?? 0;
           const clipOutPoint = override?.outPoint ?? clip.outPoint ?? clip.duration;
 
-          return total + (clipOutPoint - clipInPoint);
+          const clipDuration = clipOutPoint - clipInPoint;
+          console.log('[Timeline] Duration calc:', {
+            instanceId: tc.instanceId.substring(0, 8),
+            hasOverride: !!override,
+            clipInPoint,
+            clipOutPoint,
+            clipDuration,
+          });
+
+          return total + clipDuration;
         }, 0);
 
         // Update timeline with new trimOverrides
         const updatedTimeline = {
           ...timeline,
-          trimOverrides: currentOverrides.map(o => o.instanceId === instanceId ? result.override! : o)
-            .concat(currentOverrides.find(o => o.instanceId === instanceId) ? [] : [result.override!]),
+          trimOverrides: updatedOverrides,
           duration: newDuration,
         };
 
@@ -133,6 +151,13 @@ export const Timeline: React.FC = () => {
 
     const trimOverrides = timeline.trimOverrides || [];
 
+    console.log('[Timeline] Trim start:', {
+      clipId: clipId.substring(0, 8),
+      instanceId: instanceId.substring(0, 8),
+      edge,
+      currentOverrides: trimOverrides.map(o => ({ id: o.instanceId.substring(0, 8), in: o.inPoint, out: o.outPoint })),
+    });
+
     // Find the start time of this clip on the timeline (considering trim overrides)
     let startTime = 0;
     for (const timelineClip of timeline.clips) {
@@ -148,6 +173,8 @@ export const Timeline: React.FC = () => {
         startTime += outPoint - inPoint;
       }
     }
+
+    console.log('[Timeline] Trim start time calculated:', { instanceId: instanceId.substring(0, 8), startTime });
 
     trimDrag.startDrag(clipId, instanceId, edge, e, clip, startTime);
   }, [clips, timeline, trimDrag]);
