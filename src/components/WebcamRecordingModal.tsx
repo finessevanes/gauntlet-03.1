@@ -69,13 +69,10 @@ export const WebcamRecordingModal: React.FC<WebcamRecordingModalProps> = ({
    * Initialize modal by checking permissions first
    */
   const initializeModal = async () => {
-    console.log('[WebcamModal] Initializing modal - checking permissions upfront...');
-
     // Check camera and microphone permissions FIRST
     const permissionCheck = await checkCameraAndMicrophonePermission();
 
     if (!permissionCheck.granted) {
-      console.log('[WebcamModal] Permission denied:', permissionCheck.errorType);
       const permissionType = permissionCheck.errorType || 'camera';
       openPermissionModalWithCallbacks({
         permissionModal,
@@ -106,8 +103,6 @@ export const WebcamRecordingModal: React.FC<WebcamRecordingModalProps> = ({
     setErrorMessage('');
 
     try {
-      console.log('[WebcamModal] Enumerating camera devices...');
-
       // First enumerate to check if cameras exist
       const devices = await navigator.mediaDevices.enumerateDevices();
       const videoInputs = devices.filter((d) => d.kind === 'videoinput');
@@ -118,16 +113,11 @@ export const WebcamRecordingModal: React.FC<WebcamRecordingModalProps> = ({
         return;
       }
 
-      console.log(`[WebcamModal] Found ${videoInputs.length} camera(s)`);
-
       // Request camera permission
-      console.log('[WebcamModal] Requesting camera + microphone permission...');
       const stream = await navigator.mediaDevices.getUserMedia({
         video: true,
         audio: true
       });
-
-      console.log('[WebcamModal] Permission granted!');
 
       setMediaStream(stream);
       setStatus('preview');
@@ -167,8 +157,6 @@ export const WebcamRecordingModal: React.FC<WebcamRecordingModalProps> = ({
    * Cleanup camera stream
    */
   const cleanupCamera = () => {
-    console.log('[WebcamModal] Cleaning up camera...');
-
     if (mediaRecorder && mediaRecorder.state !== 'inactive') {
       mediaRecorder.stop();
     }
@@ -195,7 +183,6 @@ export const WebcamRecordingModal: React.FC<WebcamRecordingModalProps> = ({
    * Switch camera device
    */
   const switchCamera = async (deviceId: string) => {
-    console.log('[WebcamModal] Switching camera to:', deviceId);
     setSelectedCameraId(deviceId);
 
     try {
@@ -211,7 +198,6 @@ export const WebcamRecordingModal: React.FC<WebcamRecordingModalProps> = ({
       });
 
       setMediaStream(stream);
-      console.log('[WebcamModal] Camera switched successfully');
     } catch (error) {
       console.error('[WebcamModal] Error switching camera:', error);
       setStatus('error');
@@ -223,7 +209,6 @@ export const WebcamRecordingModal: React.FC<WebcamRecordingModalProps> = ({
    * Switch microphone device
    */
   const switchMicrophone = async (deviceId: string) => {
-    console.log('[WebcamModal] Switching microphone to:', deviceId);
     setSelectedMicrophoneId(deviceId);
 
     try {
@@ -239,7 +224,6 @@ export const WebcamRecordingModal: React.FC<WebcamRecordingModalProps> = ({
       });
 
       setMediaStream(stream);
-      console.log('[WebcamModal] Microphone switched successfully');
     } catch (error) {
       console.error('[WebcamModal] Error switching microphone:', error);
       setStatus('error');
@@ -257,8 +241,6 @@ export const WebcamRecordingModal: React.FC<WebcamRecordingModalProps> = ({
       return;
     }
 
-    console.log('[WebcamModal] Starting recording...');
-
     try {
       // Determine supported mime type
       let mimeType = 'video/webm;codecs=vp8,opus';
@@ -269,20 +251,16 @@ export const WebcamRecordingModal: React.FC<WebcamRecordingModalProps> = ({
         mimeType = '';
       }
 
-      console.log('[WebcamModal] Using mime type:', mimeType || 'default');
-
       const recorder = new MediaRecorder(mediaStream, mimeType ? { mimeType } : undefined);
       const chunks: Blob[] = [];
 
       recorder.ondataavailable = (e) => {
         if (e.data && e.data.size > 0) {
-          console.log('[WebcamModal] Data chunk received:', e.data.size, 'bytes');
           chunks.push(e.data);
         }
       };
 
       recorder.onstop = async () => {
-        console.log('[WebcamModal] Recording stopped. Total chunks:', chunks.length);
         setRecordedChunks(chunks);
         await encodeAndSave(chunks, mimeType);
       };
@@ -306,8 +284,6 @@ export const WebcamRecordingModal: React.FC<WebcamRecordingModalProps> = ({
 
       // Notify main process that webcam recording has started
       window.electron.recording.setWebcamStatus(true);
-
-      console.log('[WebcamModal] Recording started successfully');
     } catch (error) {
       console.error('[WebcamModal] Error starting recording:', error);
       setStatus('error');
@@ -319,8 +295,6 @@ export const WebcamRecordingModal: React.FC<WebcamRecordingModalProps> = ({
    * Stop recording
    */
   const handleStopRecording = () => {
-    console.log('[WebcamModal] Stopping recording...');
-
     if (timerIntervalRef.current) {
       clearInterval(timerIntervalRef.current);
       timerIntervalRef.current = null;
@@ -343,12 +317,10 @@ export const WebcamRecordingModal: React.FC<WebcamRecordingModalProps> = ({
    */
   const encodeAndSave = async (chunks: Blob[], mimeType: string) => {
     setStatus('saving');
-    console.log('[WebcamModal] Encoding recording...');
 
     try {
       // Combine chunks into single blob
       const recordedBlob = new Blob(chunks, { type: mimeType || 'video/webm' });
-      console.log('[WebcamModal] Combined blob size:', recordedBlob.size, 'bytes');
 
       if (recordedBlob.size === 0) {
         setStatus('error');
@@ -360,8 +332,6 @@ export const WebcamRecordingModal: React.FC<WebcamRecordingModalProps> = ({
       const width = videoRef.current?.videoWidth || 1280;
       const height = videoRef.current?.videoHeight || 720;
 
-      console.log('[WebcamModal] Video dimensions:', width, 'x', height);
-
       // Generate output path using recordings directory (not temp)
       const timestamp = new Date().toISOString().replace(/[-:]/g, '').split('.')[0].replace('T', '_');
       const filename = `Webcam_${timestamp}.mp4`;
@@ -369,13 +339,10 @@ export const WebcamRecordingModal: React.FC<WebcamRecordingModalProps> = ({
       // Get recordings directory path from main process
       const outputPath = await window.electron.invoke('app:get-recordings-path', filename);
 
-      console.log('[WebcamModal] Output path:', outputPath);
-
       // Convert Blob to ArrayBuffer for IPC
       const arrayBuffer = await recordedBlob.arrayBuffer();
 
       // Call IPC handler to encode
-      console.log('[WebcamModal] Calling encode IPC handler...');
       const result = await window.electron.recording.encodeWebcamRecording({
         recordedBlob: arrayBuffer,
         outputPath,
@@ -385,7 +352,6 @@ export const WebcamRecordingModal: React.FC<WebcamRecordingModalProps> = ({
       });
 
       if (result.success && result.filePath) {
-        console.log('[WebcamModal] Encoding complete:', result.filePath);
         setStatus('preview');
         cleanupCamera();
         onRecordingComplete(result.filePath);

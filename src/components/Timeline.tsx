@@ -1,6 +1,7 @@
 /**
  * Timeline Component
  * Main timeline container with clip track, playhead, controls, drop zone
+ * S13: Split & Advanced Trim features integrated
  */
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
@@ -11,6 +12,7 @@ import { TimelinePlayhead } from './TimelinePlayhead';
 import { TimelineClip } from './TimelineClip';
 import { TrimTooltip } from './TrimTooltip';
 import { useTrimDrag } from '../hooks/useTrimDrag';
+import { useSplit } from '../hooks/useSplit';
 import { calculateAutoFitZoom, getPixelsPerSecond, logTimelineClipDurations } from '../utils/timecode';
 
 // Timeline horizontal padding (px) - ensures edges are accessible for trimming
@@ -26,6 +28,7 @@ export const Timeline: React.FC = () => {
   const selectedClipSource = useSessionStore((state) => state.selectedClipSource);
   const setPlayheadPosition = useSessionStore((state) => state.setPlayheadPosition);
   const setZoomLevel = useSessionStore((state) => state.setZoomLevel);
+  const setScrollPosition = useSessionStore((state) => state.setScrollPosition);
   const updateTimeline = useSessionStore((state) => state.updateTimeline);
   const setSelectedClip = useSessionStore((state) => state.setSelectedClip);
   const isPlaying = useSessionStore((state) => state.isPlaying);
@@ -36,14 +39,16 @@ export const Timeline: React.FC = () => {
   const [isDraggingOver, setIsDraggingOver] = useState(false);
   const [draggedClipId, setDraggedClipId] = useState<string | null>(null);
   const [dropTargetIndex, setDropTargetIndex] = useState<number | null>(null);
+  const [isDraggingLibraryClip, setIsDraggingLibraryClip] = useState(false);
   const [hoveredEdge, setHoveredEdge] = useState<{ instanceId: string; edge: 'left' | 'right' } | null>(null);
+  const [splitError, setSplitError] = useState<string | null>(null); // S13: Split error feedback
+  const [splitInProgress, setSplitInProgress] = useState(false); // S13: Split operation in progress
+
+  // S13: Split & Advanced Trim features
+  const { canSplit, performSplit } = useSplit();
 
   // Log selection changes
   const handleClipSelect = useCallback((clipId: string) => {
-    console.log('[Timeline] Clip selection changed:', {
-      previousSelection: selectedClipId,
-      newSelection: clipId,
-    });
     setSelectedClip(clipId, 'timeline');
     if (previewSource !== 'timeline') {
       setPreviewSource('timeline');
@@ -58,43 +63,51 @@ export const Timeline: React.FC = () => {
   // Trim functionality (Story 5)
   const pixelsPerSecond = getPixelsPerSecond(zoomLevel);
 
-  // Trim completion handler - updates timeline clip directly
-  const handleTrimComplete = useCallback(async (clipId: string, instanceId: string, inPoint: number, outPoint: number) => {
-    console.log('[Timeline] Trim complete, calling IPC:', { clipId: clipId.substring(0, 8), instanceId: instanceId.substring(0, 8), inPoint, outPoint });
+  // Initialize trim drag hook (must be before handleTrimComplete to access clearDraggedValues)
+  const trimDrag = useTrimDrag(pixelsPerSecond, (clipId: string, instanceId: string, inPoint: number, outPoint: number) => {
+    // OPTIMISTIC UPDATE: Immediately update timeline state when drag ends
+    // This matches CapCut behavior - trim is committed immediately, not after backend confirmation
 
-    try {
-      const result = await window.electron.trim.trimClip(clipId, instanceId, inPoint, outPoint);
-
-      if (result.success && result.timelineClip) {
-        // Find and update the timeline clip with new trim points
-        const updatedClips = timeline.clips.map(tc => 
-          tc.instanceId === instanceId ? result.timelineClip : tc
-        );
-
-        // Recalculate timeline duration using updated trim points
-        const newDuration = updatedClips.reduce((total, tc) => {
-          return total + (tc.outPoint - tc.inPoint);
-        }, 0);
-
-        // Update timeline with new clips and duration
-        const updatedTimeline = {
-          clips: updatedClips,
-          duration: newDuration,
-        };
-
-        updateTimeline(updatedTimeline);
-
-        console.log('[Timeline] Trim applied successfully, new duration:', newDuration);
-      } else {
-        console.error('[Timeline] Trim failed:', result.error);
+    // Find the timeline clip and update it
+    const updatedClips = timeline.clips.map(tc => {
+      if (tc.instanceId === instanceId) {
+        return { ...tc, inPoint, outPoint };
       }
-    } catch (error) {
-      console.error('[Timeline] Error trimming clip:', error);
-    }
-  }, [timeline, updateTimeline]);
+      return tc;
+    });
 
-  // Initialize trim drag hook
-  const trimDrag = useTrimDrag(pixelsPerSecond, handleTrimComplete);
+    // Recalculate all startTimes (gap-filling) - same as backend does
+    let currentTime = 0;
+    updatedClips.forEach(tc => {
+      tc.startTime = currentTime;
+      currentTime += (tc.outPoint - tc.inPoint);
+    });
+
+    // Recalculate duration
+    const newDuration = updatedClips.reduce((total, tc) => {
+      return total + (tc.outPoint - tc.inPoint);
+    }, 0);
+
+    // Update timeline state immediately (before backend responds)
+    const updatedTimeline = {
+      clips: updatedClips,
+      duration: newDuration,
+    };
+
+    updateTimeline(updatedTimeline);
+    trimDrag.clearDraggedValues(); // Clear optimistic UI values since we've committed to timeline state
+
+    // Persist to backend (fire and forget - UI is already committed)
+    window.electron.trim.trimClip(clipId, instanceId, inPoint, outPoint)
+      .then(result => {
+        if (!result.success) {
+          // TODO: Handle backend failure - revert local changes or show error
+        }
+      })
+      .catch(error => {
+        // TODO: Handle backend error - revert local changes or show error
+      });
+  });
 
   // Handle edge hover change
   const handleEdgeHoverChange = useCallback((instanceId: string, edge: 'left' | 'right' | null) => {
@@ -116,23 +129,66 @@ export const Timeline: React.FC = () => {
       ? { ...clip, inPoint: timelineClip.inPoint, outPoint: timelineClip.outPoint }
       : clip;
 
-    console.log('[Timeline] Trim start:', {
-      clipId: clipId.substring(0, 8),
-      instanceId: instanceId.substring(0, 8),
-      edge,
-      effectiveInPoint: effectiveClip.inPoint,
-      effectiveOutPoint: effectiveClip.outPoint,
-    });
-
     // Find the start time of this clip on the timeline
     const currentTimelineClip = timeline.clips.find(tc => tc.instanceId === instanceId);
     const startTime = currentTimelineClip?.startTime || 0;
 
-    console.log('[Timeline] Trim start time calculated:', { instanceId: instanceId.substring(0, 8), startTime });
-
     // Pass the effective clip (with trim override applied) to startDrag
     trimDrag.startDrag(clipId, instanceId, edge, e, effectiveClip, startTime);
   }, [clips, timeline, trimDrag]);
+
+  // S13: Handle split operation
+  const handleSplit = useCallback(async (clipInstanceId: string) => {
+    if (!canSplit(clipInstanceId) || splitInProgress) {
+      return;
+    }
+
+    setSplitError(null);
+    setSplitInProgress(true);
+
+    try {
+      // Find the timeline clip to get the clip ID
+      const timelineClip = timeline.clips.find(tc => tc.instanceId === clipInstanceId);
+      if (!timelineClip) {
+        setSplitError('Clip not found on timeline');
+        return;
+      }
+
+      const success = await performSplit(timelineClip.clipId, clipInstanceId, playheadPosition);
+
+      if (success) {
+        setSplitError(null);
+      } else {
+        setSplitError('Failed to split clip. Check console for details.');
+      }
+    } catch (error) {
+      setSplitError('Error during split operation');
+    } finally {
+      setSplitInProgress(false);
+    }
+  }, [canSplit, splitInProgress, timeline, playheadPosition, performSplit]);
+
+  // S13: Keyboard shortcut listener for split (Cmd+X / Ctrl+X)
+  useEffect(() => {
+    const handleSplitShortcut = () => {
+      // Find the clip at playhead position (if any)
+      const clipAtPlayhead = timeline.clips.find(tc => {
+        const clipEnd = tc.startTime + (tc.outPoint - tc.inPoint);
+        return playheadPosition >= tc.startTime && playheadPosition <= clipEnd;
+      });
+
+      if (clipAtPlayhead) {
+        handleSplit(clipAtPlayhead.instanceId);
+      }
+    };
+
+    // Listen for the split shortcut from main process
+    const unsubscribe = window.electron?.ipcRenderer?.on('split-clip-shortcut', handleSplitShortcut);
+
+    return () => {
+      if (unsubscribe) unsubscribe();
+    };
+  }, [timeline.clips, playheadPosition, handleSplit]);
 
   // Measure container width for auto-fit calculation
   useEffect(() => {
@@ -147,6 +203,11 @@ export const Timeline: React.FC = () => {
     resizeObserver.observe(containerRef.current);
     return () => resizeObserver.disconnect();
   }, []);
+
+  // Log timeline clips to console whenever they change (added, removed, or trimmed)
+  useEffect(() => {
+    // Timeline update logic
+  }, [timeline.clips, clips]);
 
   // Check for broken files
   useEffect(() => {
@@ -163,7 +224,6 @@ export const Timeline: React.FC = () => {
             broken.add(timelineClip.instanceId);
           }
         } catch (error) {
-          console.error(`Error checking file ${clip.filePath}:`, error);
           broken.add(timelineClip.instanceId);
         }
       }
@@ -177,20 +237,76 @@ export const Timeline: React.FC = () => {
   }, [timeline.clips, clips]);
 
 
-  // Handle drag over (Library clips being dragged)
+  // Handle drag over (Library clips or reordering timeline clips)
   const handleDragOver = (e: React.DragEvent) => {
     // Check if it's a clip from Library
     const hasClipId = e.dataTransfer.types.includes('clipid');
 
-    if (hasClipId) {
+    // For reorder drags, we need to update dropTargetIndex based on cursor position
+    // since the drag might be over empty space (not over a TimelineClip element)
+    const isReorderDrag = draggedClipId !== null;
+
+    if (hasClipId || isReorderDrag) {
       e.preventDefault();
-      e.dataTransfer.dropEffect = 'copy';
+      e.dataTransfer.dropEffect = hasClipId ? 'copy' : 'move';
       setIsDraggingOver(true);
+
+      // Track if this is a library clip drag (for drag overlay visual)
+      if (hasClipId) {
+        setIsDraggingLibraryClip(true);
+      }
+
+      // Calculate drop position for reorder drags over background
+      if (isReorderDrag && !trackRef.current) {
+        return;
+      }
+
+      if (isReorderDrag && trackRef.current) {
+        const trackRect = trackRef.current.getBoundingClientRect();
+        const dragX = e.clientX - trackRect.left + trackRef.current.scrollLeft;
+
+        let targetPosition = timeline.clips.length; // Default to end
+        let cumulativeTime = 0;
+
+        console.log(`[Timeline.handleDragOver] dragX=${dragX}, trackRect.left=${trackRect.left}, scrollLeft=${trackRef.current.scrollLeft}, clipCount=${timeline.clips.length}`);
+
+        for (let i = 0; i < timeline.clips.length; i++) {
+          const tc = timeline.clips[i];
+          const clipDuration = tc.outPoint - tc.inPoint;
+          const clipPixelWidth = clipDuration * pixelsPerSecond;
+          const clipStartPixel = TIMELINE_PADDING + cumulativeTime * pixelsPerSecond;
+          const clipMiddle = clipStartPixel + clipPixelWidth / 2;
+
+          console.log(`[Timeline.handleDragOver] clip[${i}]: startPixel=${clipStartPixel}, middle=${clipMiddle}, width=${clipPixelWidth}, duration=${clipDuration}`);
+
+          if (dragX < clipMiddle) {
+            targetPosition = i;
+            console.log(`[Timeline.handleDragOver] dragX < clipMiddle, setting targetPosition=${i}`);
+            break;
+          }
+
+          cumulativeTime += clipDuration;
+        }
+
+        // Calculate final position (accounting for where the dragged clip will be removed from)
+        const draggedClipIndex = timeline.clips.findIndex(tc => tc.instanceId === draggedClipId);
+        const finalPosition = targetPosition > draggedClipIndex ? targetPosition - 1 : targetPosition;
+
+        console.log(`[Timeline.handleDragOver] targetPosition=${targetPosition}, draggedClipIndex=${draggedClipIndex}, finalPosition=${finalPosition}, settingIndex=${finalPosition !== draggedClipIndex ? targetPosition : 'null'}`);
+
+        // Only update if this is a different position
+        if (finalPosition !== draggedClipIndex) {
+          setDropTargetIndex(targetPosition);
+        } else {
+          setDropTargetIndex(null);
+        }
+      }
     }
   };
 
   const handleDragLeave = () => {
     setIsDraggingOver(false);
+    setIsDraggingLibraryClip(false);
   };
 
   // Handle drop (add clip to timeline at end)
@@ -198,42 +314,39 @@ export const Timeline: React.FC = () => {
     e.preventDefault();
     e.stopPropagation();
     setIsDraggingOver(false);
+    setIsDraggingLibraryClip(false);
 
     const clipId = e.dataTransfer.getData('clipId');
     const timelineClipId = e.dataTransfer.getData('timelineClipId');
     const type = e.dataTransfer.getData('type');
 
-    console.log('[Timeline] Drop event:', { clipId, timelineClipId, type, target: e.target });
+    console.log(`[Timeline.handleDrop] clipId=${clipId}, timelineClipId=${timelineClipId}, type=${type}, dropTargetIndex=${dropTargetIndex}`);
 
-    // Handle timeline clip reorder to end
+    // Handle timeline clip reorders - use the dropTargetIndex (where the blue indicator is)
     if (type === 'reorder' && timelineClipId) {
-      console.log('[Timeline] Reorder to end - moving clip to last position');
-      const currentPosition = timeline.clips.findIndex(tc => tc.instanceId === timelineClipId);
-      const lastPosition = timeline.clips.length - 1;
-
-      if (currentPosition !== lastPosition) {
-        await handleReorder(timelineClipId, lastPosition);
+      console.log(`[Timeline.handleDrop] REORDER: timelineClipId=${timelineClipId}, dropTargetIndex=${dropTargetIndex}`);
+      // If dropTargetIndex is set, use it (drop landed on Timeline background with indicator)
+      if (dropTargetIndex !== null) {
+        console.log(`[Timeline.handleDrop] Calling handleReorder with index=${dropTargetIndex}`);
+        await handleReorder(timelineClipId, dropTargetIndex);
+        return;
       } else {
-        console.log('[Timeline] Clip already at end, no reorder needed');
+        console.log(`[Timeline.handleDrop] dropTargetIndex is null, returning without reorder`);
+        return;
       }
-      return;
     }
 
     // Handle Library clips
     if (!clipId) {
-      console.log('[Timeline] No clipId in drop event, ignoring');
       return;
     }
 
     // Check if already processing (prevent double-add from preload)
     if ((window as any)._processingDrop) {
-      console.log('[Timeline] Already processing drop, ignoring duplicate');
       return;
     }
 
     (window as any)._processingDrop = true;
-
-    console.log('[Timeline] Adding clip to end of timeline:', clipId);
 
     try {
       // Add to end (no position specified)
@@ -243,14 +356,11 @@ export const Timeline: React.FC = () => {
         // Fetch updated timeline state
         const state = await window.electron.timeline.getTimelineState();
         updateTimeline({ clips: state.clips, duration: state.duration });
-        console.log('[Timeline] Clip added successfully, timeline now has', state.clips.length, 'clips');
         // Log all clip durations after adding
         logTimelineClipDurations(clips, { clips: state.clips, duration: state.duration });
-      } else {
-        console.error('[Timeline] Failed to add clip:', result.error);
       }
     } catch (error) {
-      console.error('[Timeline] Error adding clip:', error);
+      // Handle error silently
     } finally {
       setTimeout(() => {
         (window as any)._processingDrop = false;
@@ -260,11 +370,8 @@ export const Timeline: React.FC = () => {
 
   // Handle inserting library clip at specific position (from TimelineClip drop)
   const handleInsertLibraryClip = async (clipId: string, position: number) => {
-    console.log('[Timeline] Inserting library clip at position:', { clipId, position });
-
     // Check if already processing (prevent double-add)
     if ((window as any)._processingDrop) {
-      console.log('[Timeline] Already processing drop, ignoring duplicate');
       return;
     }
 
@@ -277,14 +384,11 @@ export const Timeline: React.FC = () => {
         // Fetch updated timeline state
         const state = await window.electron.timeline.getTimelineState();
         updateTimeline({ clips: state.clips, duration: state.duration });
-        console.log('[Timeline] Clip inserted successfully at position', position, ', timeline now has', state.clips.length, 'clips');
         // Log all clip durations after adding
         logTimelineClipDurations(clips, { clips: state.clips, duration: state.duration });
-      } else {
-        console.error('[Timeline] Failed to insert clip:', result.error);
       }
     } catch (error) {
-      console.error('[Timeline] Error inserting clip:', error);
+      // Handle error silently
     } finally {
       setDropTargetIndex(null);
       setTimeout(() => {
@@ -310,42 +414,35 @@ export const Timeline: React.FC = () => {
     if (previewSource !== 'timeline') {
       setPreviewSource('timeline');
     }
+    // setPlayheadPosition now persists to disk automatically via Zustand
     setPlayheadPosition(time);
-    await window.electron.timeline.setPlayheadPosition(time);
   };
 
   // Handle clip reorder
   const handleReorder = async (instanceId: string, newPosition: number) => {
     const currentPosition = timeline.clips.findIndex(tc => tc.instanceId === instanceId);
 
-    console.log('[Timeline] handleReorder called:', {
-      instanceId: instanceId.substring(0, 8),
-      currentPosition,
-      requestedPosition: newPosition,
-      timelineLength: timeline.clips.length,
-      timelineBefore: timeline.clips.map((tc, i) => `${i}:${clips.find(c => c.id === tc.clipId)?.filename.substring(0, 10)}`),
-    });
+    console.log(`[Timeline.handleReorder] instanceId=${instanceId}, currentPosition=${currentPosition}, newPosition=${newPosition}`);
 
     // Validation: Don't reorder if position hasn't changed
     if (currentPosition === newPosition) {
-      console.log('[Timeline] Position unchanged, skipping reorder');
+      console.log(`[Timeline.handleReorder] Position unchanged, returning without reorder`);
       setDraggedClipId(null);
       setDropTargetIndex(null);
       return;
     }
 
     try {
+      console.log(`[Timeline.handleReorder] Calling electron.timeline.reorderClip(${instanceId}, ${newPosition})`);
       const result = await window.electron.timeline.reorderClip(instanceId, newPosition);
 
+      console.log(`[Timeline.handleReorder] Result: success=${result.success}, updatedTimeline=${result.updatedTimeline ? result.updatedTimeline.length + ' clips' : 'undefined'}`);
       if (result.success && result.updatedTimeline) {
         updateTimeline({ clips: result.updatedTimeline, duration: result.duration || timeline.duration });
-        console.log('[Timeline] Clip reordered successfully, timeline now:',
-          result.updatedTimeline.map((tc, i) => `${i}:${clips.find(c => c.id === tc.clipId)?.filename.substring(0, 10)}`));
-      } else {
-        console.error('[Timeline] Failed to reorder clip:', result.error);
       }
     } catch (error) {
-      console.error('[Timeline] Error reordering clip:', error);
+      console.log(`[Timeline.handleReorder] Error:`, error);
+      // Handle error silently
     } finally {
       setDraggedClipId(null);
       setDropTargetIndex(null);
@@ -354,13 +451,11 @@ export const Timeline: React.FC = () => {
 
   // Handle drag start for timeline clips
   const handleClipDragStart = (clipId: string) => {
-    console.log('[Timeline] Clip drag started:', clipId);
     setDraggedClipId(clipId);
   };
 
   // Handle drag end
   const handleClipDragEnd = () => {
-    console.log('[Timeline] Drag ended, clearing drop target and selection');
     setDropTargetIndex(null);
     setDraggedClipId(null);
     setSelectedClip(null, null); // Deselect clip when drag ends
@@ -368,8 +463,6 @@ export const Timeline: React.FC = () => {
 
   // Handle when clip is dragged over another clip (to show insertion point)
   const handleClipDragEnter = (targetIndex: number) => {
-    console.log('[Timeline] Drag entered at targetIndex:', targetIndex);
-
     // If we're reordering a timeline clip, check if this is a valid drop position
     if (draggedClipId) {
       const draggedClipIndex = timeline.clips.findIndex(tc => tc.instanceId === draggedClipId);
@@ -380,34 +473,18 @@ export const Timeline: React.FC = () => {
       // - If target <= current: final position = target
       const finalPosition = targetIndex > draggedClipIndex ? targetIndex - 1 : targetIndex;
 
-      console.log('[Timeline] Reorder validation:', {
-        draggedClipIndex,
-        targetIndex,
-        finalPosition,
-        timelineLength: timeline.clips.length,
-        wouldChangePosition: finalPosition !== draggedClipIndex,
-      });
-
       // Only show indicator if the clip will end up in a different position
       if (finalPosition === draggedClipIndex) {
-        console.log('[Timeline] Clip would end up in same position, hiding indicator');
         setDropTargetIndex(null);
         return;
       }
     }
 
-    console.log('[Timeline] Showing drop indicator at index:', targetIndex);
     setDropTargetIndex(targetIndex);
   };
 
-  // Debug: Log draggedClipId changes
-  useEffect(() => {
-    console.log('[Timeline] draggedClipId changed:', draggedClipId);
-  }, [draggedClipId]);
-
   // Handle clip delete
   const handleDelete = async (instanceId: string) => {
-    console.log('[Timeline] Deleting clip:', instanceId);
 
     try {
       const result = await window.electron.timeline.deleteClip(instanceId);
@@ -418,12 +495,9 @@ export const Timeline: React.FC = () => {
         updateTimeline({ clips: state.clips, duration: state.duration });
         setPlayheadPosition(state.playheadPosition); // Update playhead if it was reset
         setSelectedClip(null, null);
-        console.log('[Timeline] Clip deleted successfully');
-      } else {
-        console.error('[Timeline] Failed to delete clip:', result.error);
       }
     } catch (error) {
-      console.error('[Timeline] Error deleting clip:', error);
+      // Handle error silently
     }
   };
 
@@ -437,14 +511,15 @@ export const Timeline: React.FC = () => {
 
       // Debounce: save scroll position after 500ms of no scrolling
       clearTimeout((window as any)._scrollTimeout);
-      (window as any)._scrollTimeout = setTimeout(async () => {
-        await window.electron.timeline.setScrollPosition(scrollX);
+      (window as any)._scrollTimeout = setTimeout(() => {
+        // setScrollPosition now persists to disk automatically via Zustand
+        setScrollPosition(scrollX);
       }, 500);
     };
 
     trackRef.current.addEventListener('scroll', handleScroll);
     return () => trackRef.current?.removeEventListener('scroll', handleScroll);
-  }, []);
+  }, [setScrollPosition]);
 
   // Restore scroll position on mount
   useEffect(() => {
@@ -462,7 +537,6 @@ export const Timeline: React.FC = () => {
       // Check if click is outside the timeline container
       if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
         if (selectedClipId) {
-          console.log('[Timeline] Clicked outside timeline, deselecting clip');
           setSelectedClip(null, null);
         }
       }
@@ -478,7 +552,6 @@ export const Timeline: React.FC = () => {
   const handleTimelineClick = (e: React.MouseEvent) => {
     // Only deselect if clicking directly on the track container (not on clips)
     if (e.target === e.currentTarget || e.target === trackRef.current) {
-      console.log('[Timeline] Clicked on empty space, deselecting clip');
       setSelectedClip(null, null);
       if (previewSource !== 'timeline') {
         setPreviewSource('timeline');
@@ -508,25 +581,75 @@ export const Timeline: React.FC = () => {
         onZoomChange={handleZoomChange}
       />
 
-      {/* Timeline Track */}
-      <div
-        ref={trackRef}
-        style={styles.trackContainer}
-        onDragOver={handleDragOver}
-        onDragLeave={handleDragLeave}
-        onDrop={handleDrop}
-        onClick={handleTimelineClick}
-      >
+      {/* S13: Split Toolbar */}
+      {timeline.clips.length > 0 && (
+        <div style={styles.splitToolbar}>
+          {(() => {
+            // Find the clip at playhead position (if any)
+            const clipAtPlayhead = timeline.clips.find(tc => {
+              const clipEnd = tc.startTime + (tc.outPoint - tc.inPoint);
+              return playheadPosition >= tc.startTime && playheadPosition <= clipEnd;
+            });
+
+
+            return (
+              <>
+                <button
+                  onClick={() => {
+                    if (clipAtPlayhead) {
+                      handleSplit(clipAtPlayhead.instanceId);
+                    }
+                  }}
+                  disabled={!clipAtPlayhead || splitInProgress}
+                  style={{
+                    ...styles.splitButton,
+                    ...(clipAtPlayhead && !splitInProgress ? styles.splitButtonEnabled : styles.splitButtonDisabled),
+                  }}
+                  title={clipAtPlayhead ? 'Split clip at playhead (Cmd+X / Ctrl+X)' : 'Position playhead within a clip to split'}
+                >
+                  {splitInProgress ? 'Splitting...' : 'Split'}
+                </button>
+                {splitError && (
+                  <span style={styles.errorMessage}>{splitError}</span>
+                )}
+              </>
+            );
+          })()}
+        </div>
+      )}
+
+      {/* Timeline Track Container with Fixed Header */}
+      <div style={styles.timelineWrapper}>
+        {/* Fixed Track Labels Header */}
+        <div style={styles.trackLabelsHeader}>
+          {/* Ruler header cell */}
+          <div style={styles.trackLabelHeader}></div>
+          <div style={styles.trackLabel}>V1</div>
+          <div style={styles.trackLabel}>A2</div>
+          <div style={styles.trackLabel}>A1</div>
+          <div style={styles.trackLabel}>TXT</div>
+          <div style={styles.trackLabel}>AO</div>
+        </div>
+
+        {/* Scrollable Timeline Track */}
+        <div
+          ref={trackRef}
+          style={styles.trackContainer}
+          onDragOver={handleDragOver}
+          onDragLeave={handleDragLeave}
+          onDrop={handleDrop}
+          onClick={handleTimelineClick}
+        >
         {/* Empty State */}
         {timeline.clips.length === 0 && (
-          <div style={{ ...styles.emptyState, opacity: isDraggingOver ? 0.3 : 1 }}>
+          <div style={{ ...styles.emptyState, opacity: isDraggingLibraryClip ? 0.3 : 1 }}>
             <span style={styles.emptyIcon}>🎬</span>
             <p style={styles.emptyText}>Drag clips here to start editing</p>
           </div>
         )}
 
         {/* Drag Over Highlight */}
-        {isDraggingOver && (
+        {isDraggingLibraryClip && (
           <div style={styles.dragOverlay}>
             <span style={styles.dragOverlayText}>Drop clip to add to timeline</span>
           </div>
@@ -547,35 +670,36 @@ export const Timeline: React.FC = () => {
               padding={TIMELINE_PADDING}
             />
 
-            {/* Track Labels */}
-            <div style={styles.trackLabels}>
-              <div style={styles.trackLabel}>V1</div>
-              <div style={styles.trackLabel}>A2</div>
-              <div style={styles.trackLabel}>A1</div>
-              <div style={styles.trackLabel}>TXT</div>
-              <div style={styles.trackLabel}>AO</div>
-            </div>
-
-            {/* Drop Indicator - Render once at the calculated position */}
-            {dropTargetIndex !== null && (
+            {/* Drop Indicator - Render once at the calculated position (show for library clips OR reorder drags) */}
+            {(() => {
+              const isReorderDrag = draggedClipId !== null;
+              const shouldRender = (isDraggingLibraryClip || isReorderDrag) && dropTargetIndex !== null;
+              console.log(`[Timeline.DropIndicator] shouldRender=${shouldRender}, dropTargetIndex=${dropTargetIndex}, isDraggingLibraryClip=${isDraggingLibraryClip}, isReorderDrag=${isReorderDrag}`);
+              return shouldRender;
+            })() && (
               <div
                 style={{
                   position: 'absolute' as const,
                   left: (() => {
                     // Calculate the pixel position for the drop indicator
+                    let pixelPos: string;
                     if (dropTargetIndex === 0) {
                       // Insert at beginning
-                      return `${TIMELINE_PADDING}px`;
+                      pixelPos = `${TIMELINE_PADDING}px`;
+                      console.log(`[Timeline.DropIndicator] dropTargetIndex=0 (beginning), position=${pixelPos}`);
                     } else if (dropTargetIndex >= timeline.clips.length) {
                       // Insert at end
                       const lastTimelineClip = timeline.clips[timeline.clips.length - 1];
                       const lastClipEnd = lastTimelineClip.startTime + (lastTimelineClip.outPoint - lastTimelineClip.inPoint);
-                      return `${TIMELINE_PADDING + lastClipEnd * pixelsPerSecond}px`;
+                      pixelPos = `${TIMELINE_PADDING + lastClipEnd * pixelsPerSecond}px`;
+                      console.log(`[Timeline.DropIndicator] dropTargetIndex=${dropTargetIndex} >= clipCount=${timeline.clips.length} (end), lastClipStart=${lastTimelineClip.startTime}, lastClipDuration=${lastTimelineClip.outPoint - lastTimelineClip.inPoint}, lastClipEnd=${lastClipEnd}, position=${pixelPos}`);
                     } else {
                       // Insert between clips - show at start of clip at dropTargetIndex
                       const targetTimelineClip = timeline.clips[dropTargetIndex];
-                      return `${TIMELINE_PADDING + targetTimelineClip.startTime * pixelsPerSecond}px`;
+                      pixelPos = `${TIMELINE_PADDING + targetTimelineClip.startTime * pixelsPerSecond}px`;
+                      console.log(`[Timeline.DropIndicator] dropTargetIndex=${dropTargetIndex} (between clips), clipStartTime=${targetTimelineClip.startTime}, position=${pixelPos}`);
                     }
+                    return pixelPos;
                   })(),
                   top: '24px',
                   width: '4px',
@@ -674,10 +798,12 @@ export const Timeline: React.FC = () => {
               timelineDuration={timeline.duration}
               zoomLevel={zoomLevel}
               padding={TIMELINE_PADDING}
+              scrollContainerRef={trackRef}
               onSeek={handleSeek}
             />
           </div>
         )}
+        </div>
       </div>
 
       {/* Trim Tooltip (Story 5) */}
@@ -712,6 +838,12 @@ const styles = {
     height: '100%',
     backgroundColor: '#1a1a1a',
   },
+  timelineWrapper: {
+    display: 'flex',
+    flexDirection: 'row' as const,
+    flex: 1,
+    minHeight: '500px', // S13: Increased minimum height for better clip visibility
+  },
   trackContainer: {
     flex: 1,
     overflowX: 'auto' as const,
@@ -721,7 +853,7 @@ const styles = {
   },
   track: {
     position: 'relative' as const,
-    height: '200px',
+    height: '450px', // S13: Increased from 300px for much better clip visibility
     minWidth: '100%',
     paddingLeft: '20px', // Add padding to make left edge easier to access
     paddingRight: '20px', // Add padding for symmetry
@@ -763,16 +895,25 @@ const styles = {
     color: '#4a9eff',
     fontWeight: 'bold' as const,
   },
-  trackLabels: {
-    position: 'absolute' as const,
-    left: '0',
-    top: '24px',
+  trackLabelsHeader: {
     width: '60px',
-    height: '100%',
+    minWidth: '60px',
     backgroundColor: '#252525',
     borderRight: '1px solid #333',
     display: 'flex',
     flexDirection: 'column' as const,
+    zIndex: 10,
+  },
+  trackLabelHeader: {
+    height: '24px',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    fontSize: '12px',
+    fontWeight: 'bold' as const,
+    color: '#999',
+    borderBottom: '1px solid #333',
+    backgroundColor: '#2a2a2a',
   },
   trackLabel: {
     height: '32px',
@@ -784,5 +925,46 @@ const styles = {
     color: '#999',
     borderBottom: '1px solid #333',
     backgroundColor: '#1e1e1e',
+  },
+  // S13: Split toolbar styles
+  splitToolbar: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '12px',
+    padding: '4px 16px', // S13: Reduced from 8px to save vertical space
+    backgroundColor: '#252525',
+    borderBottom: '1px solid #333',
+    fontSize: '12px',
+  },
+  splitButton: {
+    padding: '8px 20px',
+    border: '1px solid #555',
+    borderRadius: '6px',
+    fontSize: '13px',
+    fontWeight: 'bold' as const,
+    cursor: 'pointer',
+    transition: 'all 0.2s',
+    outline: 'none',
+  },
+  splitButtonEnabled: {
+    backgroundColor: '#ff6b35',
+    color: '#fff',
+    border: '1px solid #ff4500',
+    boxShadow: '0 0 8px rgba(255, 107, 53, 0.4)',
+  },
+  splitButtonDisabled: {
+    backgroundColor: '#3a3a3a',
+    color: '#666',
+    border: '1px solid #444',
+    cursor: 'not-allowed',
+    opacity: 0.4,
+  },
+  errorMessage: {
+    color: '#ff6b6b',
+    fontSize: '11px',
+    padding: '4px 8px',
+    backgroundColor: 'rgba(255, 107, 107, 0.1)',
+    borderRadius: '3px',
+    border: '1px solid rgba(255, 107, 107, 0.3)',
   },
 };

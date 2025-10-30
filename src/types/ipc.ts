@@ -73,6 +73,9 @@ export interface TrimClipRequest {
 export interface TrimClipResponse {
   success: boolean;             // Whether trim succeeded
   clip?: import('./session').Clip; // Updated clip data
+  timelineClip?: import('./session').TimelineClip; // Updated timeline clip instance
+  clips?: import('./session').TimelineClip[]; // All timeline clips with recalculated startTimes
+  duration?: number;            // Recalculated timeline duration
   error?: string;               // Error message if trim failed
 }
 

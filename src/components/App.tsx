@@ -25,14 +25,10 @@ export const App: React.FC = () => {
    */
   const initializeApp = async () => {
     try {
-      console.log('[App] Initializing...');
       const startTime = performance.now();
 
       // Call app:init IPC handler
       const response = await window.electron.invoke<AppInitResponse>('app:init');
-
-      const initTime = performance.now() - startTime;
-      console.log(`[App] Initialization completed in ${initTime.toFixed(0)}ms`);
 
       // Check FFmpeg status
       if (response.ffmpegStatus === 'error') {
@@ -42,19 +38,9 @@ export const App: React.FC = () => {
         return;
       }
 
-      console.log('[App] FFmpeg validation passed');
-
       // Load session if available
       if (response.session) {
-        console.log('[App] Restoring session:', {
-          clips: response.session.clips.length,
-          timelineClips: response.session.timeline.clips.length,
-          zoomLevel: response.session.zoomLevel,
-          playheadPosition: response.session.playheadPosition,
-        });
         setSession(response.session);
-      } else {
-        console.log('[App] No session found. Starting with empty state.');
       }
 
       // Initialization complete
@@ -71,7 +57,6 @@ export const App: React.FC = () => {
    * Handle error dialog close (quit app)
    */
   const handleErrorClose = () => {
-    console.log('[App] User closed error dialog. Quitting app.');
     window.electron.quit();
   };
 

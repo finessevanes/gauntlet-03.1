@@ -369,25 +369,20 @@ contextBridge.exposeInMainWorld('electron', {
         // Don't stopPropagation - allow React's drop handler to fire for UI state cleanup
 
         if (!dropEvent.dataTransfer?.files) {
-          console.log('[Preload] No files in drop event');
           return;
         }
 
         const files = Array.from(dropEvent.dataTransfer.files);
-        console.log('[Preload] Drop event in preload, files:', files);
 
         const paths = files.map((file) => {
           try {
             const path = webUtils.getPathForFile(file);
-            console.log('[Preload] Got path:', file.name, '→', path);
             return path;
           } catch (error) {
-            console.error('[Preload] Error getting path:', error);
             return '';
           }
         }).filter(Boolean);
 
-        console.log('[Preload] Calling callback with paths:', paths);
         if (paths.length > 0) {
           callback(paths);
         }
@@ -434,8 +429,8 @@ declare global {
         saveSession(session: any): Promise<{ success: boolean; error?: string }>;
       };
       trim: {
-        trimClip(clipId: string, inPoint: number, outPoint: number): Promise<import('./types/ipc').TrimClipResponse>;
-        resetTrim(clipId: string): Promise<import('./types/ipc').ResetTrimResponse>;
+        trimClip(clipId: string, instanceId: string, inPoint: number, outPoint: number): Promise<import('./types/ipc').TrimClipResponse>;
+        resetTrim(clipId: string, instanceId: string): Promise<import('./types/ipc').ResetTrimResponse>;
       };
       export: {
         onProgress(callback: (progress: any) => void): () => void;

@@ -69,9 +69,10 @@ export const TimelineClip: React.FC<TimelineClipProps> = ({
 
   const pixelsPerSecond = getPixelsPerSecond(zoomLevel);
 
-  // Use dragged trim points if currently trimming, otherwise use clip's trim points
-  const effectiveInPoint = isTrimming && draggedInPoint !== null ? draggedInPoint : clip.inPoint;
-  const effectiveOutPoint = isTrimming && draggedOutPoint !== null ? draggedOutPoint : clip.outPoint;
+  // Use dragged trim points if they exist (during OR after trim drag), otherwise use clip's trim points
+  // This prevents the "bounce" when releasing the mouse, as optimistic values persist until backend updates
+  const effectiveInPoint = draggedInPoint !== null ? draggedInPoint : clip.inPoint;
+  const effectiveOutPoint = draggedOutPoint !== null ? draggedOutPoint : clip.outPoint;
   const effectiveDuration = effectiveOutPoint - effectiveInPoint;
   const clipWidth = effectiveDuration * pixelsPerSecond;
 
@@ -88,23 +89,7 @@ export const TimelineClip: React.FC<TimelineClipProps> = ({
   // Determine if we're expanding or trimming (growing or shrinking)
   const isExpanding = isTrimming && (effectiveInPoint < clip.inPoint || effectiveOutPoint > clip.outPoint);
 
-  // Debug logging for trim
-  if (isTrimming) {
-    console.log('[TimelineClip] Trim rendering:', {
-      clipId: clip.id.substring(0, 8),
-      originalInPoint: clip.inPoint,
-      originalOutPoint: clip.outPoint,
-      draggedInPoint,
-      draggedOutPoint,
-      effectiveInPoint,
-      effectiveOutPoint,
-      effectiveDuration,
-      clipWidth,
-      startTime,
-      trimOffset,
-      xPosition,
-    });
-  }
+  // Debug logging for trim - removed for production
 
   // Check if this clip's edge is being hovered (use instanceId, not clipId, to support multiple instances)
   const isLeftEdgeHovered = hoveredEdge?.instanceId === instanceId && hoveredEdge.edge === 'left';
@@ -113,7 +98,6 @@ export const TimelineClip: React.FC<TimelineClipProps> = ({
 
   // Handle click - select the clip (same as Library)
   const handleClick = (e: React.MouseEvent) => {
-    console.log('[TimelineClip] Click - selecting clip:', instanceId);
     onSelect(instanceId);
   };
 
@@ -175,7 +159,6 @@ export const TimelineClip: React.FC<TimelineClipProps> = ({
     // Check if clicking on an edge
     if (isAnyEdgeHovered && hoveredEdge) {
       e.stopPropagation(); // Prevent regular drag from starting
-      console.log('[TimelineClip] Starting trim drag:', { edge: hoveredEdge.edge, clipId: clip.id.substring(0, 8) });
       onTrimStart(clip.id, instanceId, hoveredEdge.edge, e);
     }
   };
@@ -201,8 +184,6 @@ export const TimelineClip: React.FC<TimelineClipProps> = ({
       return;
     }
 
-    console.log('[TimelineClip] Drag start:', instanceId);
-
     // Select the clip being dragged (same as Library does)
     onSelect(instanceId);
     onDragStart(instanceId);
@@ -223,22 +204,33 @@ export const TimelineClip: React.FC<TimelineClipProps> = ({
 
   // Handle drag over (allow drop)
   const handleDragOver = (e: React.DragEvent) => {
-    const isReorder = e.dataTransfer.types.includes('timelineclipid');
-    const isLibraryClip = e.dataTransfer.types.includes('clipid');
+    // Check for library clips using standard MIME types
+    const hasFiles = e.dataTransfer.types.includes('Files');
+    const hasText = e.dataTransfer.types.includes('text/html') || e.dataTransfer.types.includes('text/plain');
 
-    if (isReorder || isLibraryClip) {
+    // During a reorder drag, we can't read custom data, but we know a drag is happening
+    // Check if draggedClipIndex is set (means a timeline clip is being dragged)
+    const isReorderDrag = draggedClipIndex !== null;
+    const isLibraryClip = hasFiles || hasText;
+
+    if (isReorderDrag || isLibraryClip) {
       e.preventDefault();
       e.stopPropagation(); // Prevent event from bubbling to parent
-      e.dataTransfer.dropEffect = isReorder ? 'move' : 'copy';
+      e.dataTransfer.dropEffect = isReorderDrag ? 'move' : 'copy';
     }
   };
 
   // Handle drag enter (show insertion point)
   const handleDragEnterClip = (e: React.DragEvent) => {
-    const isReorder = e.dataTransfer.types.includes('timelineclipid');
-    const isLibraryClip = e.dataTransfer.types.includes('clipid');
+    // During a reorder drag, draggedClipIndex will be set by parent
+    const isReorderDrag = draggedClipIndex !== null;
 
-    if (isReorder || isLibraryClip) {
+    // Check for library clips using standard MIME types
+    const hasFiles = e.dataTransfer.types.includes('Files');
+    const hasText = e.dataTransfer.types.includes('text/html') || e.dataTransfer.types.includes('text/plain');
+    const isLibraryClip = hasFiles || hasText;
+
+    if (isReorderDrag || isLibraryClip) {
       e.preventDefault();
       e.stopPropagation(); // Prevent event from bubbling to parent
 
@@ -249,15 +241,17 @@ export const TimelineClip: React.FC<TimelineClipProps> = ({
 
       // If cursor is in left half, show indicator before this clip (index)
       // If cursor is in right half, show indicator after this clip (index + 1)
-      const dropIndex = mouseX < clipMiddle ? index : index + 1;
-
-      console.log('[TimelineClip] Drag enter:', {
-        index,
-        mouseX,
-        clipMiddle,
-        dropIndex,
-        filename: clip.filename
-      });
+      // For reorder: if dragging backward (right to left), prioritize left half for inserting before
+      let dropIndex: number;
+      if (isReorderDrag && draggedClipIndex !== null && draggedClipIndex > index) {
+        // Dragging backward: use a lower threshold for left half to make it easier to drop before
+        dropIndex = mouseX < clipMiddle * 0.7 ? index : index + 1;
+        console.log(`[TimelineClip.handleDragEnter] clip[${index}], BACKWARD drag (from ${draggedClipIndex}), mouseX=${mouseX}, threshold=${clipMiddle * 0.7}, dropIndex=${dropIndex}`);
+      } else {
+        // Normal drop or dragging forward: use standard midpoint
+        dropIndex = mouseX < clipMiddle ? index : index + 1;
+        console.log(`[TimelineClip.handleDragEnter] clip[${index}], ${isReorderDrag ? 'forward/reorder' : 'library'} drag, mouseX=${mouseX}, middle=${clipMiddle}, dropIndex=${dropIndex}`);
+      }
 
       onDragEnter(dropIndex);
     }
@@ -265,19 +259,11 @@ export const TimelineClip: React.FC<TimelineClipProps> = ({
 
   // Handle drag end
   const handleDragEndClip = (e: React.DragEvent) => {
-    console.log('[TimelineClip] Drag ended:', instanceId);
     onDragEnd();
   };
 
   // Handle drop (reorder or insert library clip)
   const handleDrop = (e: React.DragEvent) => {
-    console.log('[TimelineClip] ===== DROP EVENT FIRED =====', {
-      clipFilename: clip.filename.substring(0, 10),
-      clipIndex: index,
-      eventType: e.type,
-      timestamp: Date.now(),
-    });
-
     const timelineClipId = e.dataTransfer.getData('timelineClipId');
     const libraryClipId = e.dataTransfer.getData('clipId');
     const type = e.dataTransfer.getData('type');
@@ -289,19 +275,17 @@ export const TimelineClip: React.FC<TimelineClipProps> = ({
 
     // If cursor is in left half, insert before this clip (index)
     // If cursor is in right half, insert after this clip (index + 1)
-    const dropIndex = mouseX < clipMiddle ? index : index + 1;
+    // For reorder: if dragging backward (right to left), prioritize left half for inserting before
+    let dropIndex: number;
+    if (type === 'reorder' && draggedClipIndex !== null && draggedClipIndex > index) {
+      // Dragging backward: use a lower threshold for left half to make it easier to drop before
+      dropIndex = mouseX < clipMiddle * 0.7 ? index : index + 1;
+    } else {
+      // Normal drop or dragging forward: use standard midpoint
+      dropIndex = mouseX < clipMiddle ? index : index + 1;
+    }
 
-    console.log('[TimelineClip] Drop event data:', {
-      timelineClipId: timelineClipId?.substring(0, 8),
-      libraryClipId: libraryClipId?.substring(0, 8),
-      type,
-      thisClipIndex: index,
-      thisClipFilename: clip.filename.substring(0, 10),
-      mouseX,
-      clipMiddle,
-      calculatedDropIndex: dropIndex,
-      isLeftHalf: mouseX < clipMiddle,
-    });
+    console.log(`[TimelineClip.handleDrop] clip[${index}] (instanceId=${instanceId}), type=${type}, mouseX=${mouseX}, middle=${clipMiddle}, dropIndex=${dropIndex}`);
 
     // Handle timeline clip reordering
     if (type === 'reorder' && timelineClipId && timelineClipId !== instanceId) {
@@ -318,13 +302,7 @@ export const TimelineClip: React.FC<TimelineClipProps> = ({
         adjustedDropIndex = dropIndex - 1;
       }
 
-      console.log('[TimelineClip] Calling onReorder:', {
-        originalDropIndex: dropIndex,
-        adjustedDropIndex,
-        draggedClipIndex,
-        reason: draggedClipIndex !== null && draggedClipIndex < dropIndex ? 'dragging forward, adjusted -1' : 'no adjustment needed'
-      });
-
+      console.log(`[TimelineClip.handleDrop] REORDER: draggedClipIndex=${draggedClipIndex}, adjustedDropIndex=${adjustedDropIndex}, calling onReorder`);
       onReorder(timelineClipId, adjustedDropIndex);
     }
     // Handle library clip insertion at calculated position (not at the very end)
@@ -332,10 +310,7 @@ export const TimelineClip: React.FC<TimelineClipProps> = ({
       e.preventDefault();
       e.stopPropagation();
 
-      console.log('[TimelineClip] Inserting library clip at position:', dropIndex);
       onInsertLibraryClip(libraryClipId, dropIndex);
-    } else {
-      console.log('[TimelineClip] Drop ignored - no matching condition');
     }
     // Don't prevent default for other cases - let it bubble to Timeline
   };

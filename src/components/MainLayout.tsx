@@ -48,7 +48,6 @@ export const MainLayout: React.FC = () => {
       const minWidthPercent = (MIN_LIBRARY_WIDTH_PX / containerWidth) * 100;
       if (libraryWidth < minWidthPercent) {
         setLibraryWidth(minWidthPercent);
-        console.log(`[MainLayout] Enforcing minimum library width: ${minWidthPercent.toFixed(2)}%`);
       }
     }
   }, []);
@@ -152,13 +151,10 @@ export const MainLayout: React.FC = () => {
    * Handle start recording from dialog
    */
   const handleStartRecording = async (screenId: string, audioEnabled: boolean, audioDeviceId?: string) => {
-    console.log('[MainLayout] Starting recording:', { screenId, audioEnabled, audioDeviceId });
-
     const sessionId = await startRecording(screenId, audioEnabled, audioDeviceId);
 
     if (sessionId) {
       setIsRecordDialogOpen(false);
-      console.log('[MainLayout] Recording started successfully');
     } else {
       console.error('[MainLayout] Failed to start recording');
     }
@@ -168,20 +164,15 @@ export const MainLayout: React.FC = () => {
    * Handle stop recording
    */
   const handleStopRecording = async () => {
-    console.log('[MainLayout] Stopping recording...');
     setIsStopping(true);
 
     try {
       const result = await stopRecording();
 
       if (result.success && result.filePath) {
-        console.log('[MainLayout] Recording stopped. File saved:', result.filePath);
-
         // Auto-import the recorded video into the library
         try {
-          console.log('[MainLayout] Auto-importing recorded video...');
           await importVideos([result.filePath]);
-          console.log('[MainLayout] Recorded video imported successfully');
         } catch (error) {
           console.error('[MainLayout] Failed to import recorded video:', error);
         }
@@ -204,13 +195,9 @@ export const MainLayout: React.FC = () => {
    * Handle webcam recording complete
    */
   const handleWebcamRecordingComplete = async (filePath: string) => {
-    console.log('[MainLayout] Webcam recording complete:', filePath);
-
     // Auto-import the recorded video into the library
     try {
-      console.log('[MainLayout] Auto-importing webcam recording...');
       await importVideos([filePath]);
-      console.log('[MainLayout] Webcam recording imported successfully');
     } catch (error) {
       console.error('[MainLayout] Failed to import webcam recording:', error);
     }
@@ -227,13 +214,9 @@ export const MainLayout: React.FC = () => {
    * Handle PiP recording complete (Story S11)
    */
   const handlePiPRecordingComplete = async (filePath: string) => {
-    console.log('[MainLayout] PiP recording complete:', filePath);
-
     // Auto-import the recorded PiP video into the library
     try {
-      console.log('[MainLayout] Auto-importing PiP recording...');
       await importVideos([filePath]);
-      console.log('[MainLayout] PiP recording imported successfully');
     } catch (error) {
       console.error('[MainLayout] Failed to import PiP recording:', error);
     }
@@ -243,11 +226,8 @@ export const MainLayout: React.FC = () => {
    * Handle Export button click
    */
   const handleExportClick = async () => {
-    console.log('[Export] Export button clicked');
-
     // Basic validation: check if timeline has clips
     if (!timeline.clips || timeline.clips.length === 0) {
-      console.log('[Export] Timeline is empty');
       setExportProgress({
         percentComplete: 0,
         estimatedTimeRemaining: 0,
@@ -257,8 +237,6 @@ export const MainLayout: React.FC = () => {
       setIsExportModalOpen(true);
       return;
     }
-
-    console.log('[Export] Timeline has', timeline.clips.length, 'clips');
 
     // Determine source resolution (Story 14: Advanced Export Options)
     const maxResolution = timeline.clips.reduce(
@@ -275,11 +253,9 @@ export const MainLayout: React.FC = () => {
       { width: 1920, height: 1080 }
     );
 
-    console.log('[Export] Source resolution:', maxResolution);
     setSourceResolution(maxResolution);
 
     // Show preset selector (Story 14: Advanced Export Options)
-    console.log('[Export] Opening preset selector');
     setIsPresetSelectorOpen(true);
   };
 
@@ -287,15 +263,12 @@ export const MainLayout: React.FC = () => {
    * Handle preset selection (Story 14: Advanced Export Options)
    */
   const handlePresetSelected = async (preset: ExportPreset) => {
-    console.log('[Export] Preset selected:', preset.name);
     setSelectedPreset(preset);
     setIsPresetSelectorOpen(false);
 
     // Now open the save dialog with preset-specific filename
     const timestamp = new Date().toISOString().replace(/[-:]/g, '').split('.')[0].replace('T', '_');
     const defaultFilename = `Klippy_Export_${preset.name}_${timestamp}.mp4`;
-
-    console.log('[Export] Opening save dialog with filename:', defaultFilename);
 
     try {
       const result = await window.electron.invoke('dialog:showSaveDialog', {
@@ -304,18 +277,14 @@ export const MainLayout: React.FC = () => {
         filters: [{ name: 'MP4 Video', extensions: ['mp4'] }],
       });
 
-      console.log('[Export] Save dialog result:', result);
-
       // User cancelled
       if (result.canceled) {
-        console.log('[Export] User cancelled save dialog');
         setSelectedPreset(null);
         return;
       }
 
       // Start export
       const outputPath = result.filePath;
-      console.log('[Export] Output path selected:', outputPath);
 
       setExportStatus('validating');
       setExportProgress({
@@ -331,14 +300,8 @@ export const MainLayout: React.FC = () => {
         totalDuration: timeline.duration,
       };
 
-      console.log('[Export] Timeline data:', {
-        clipCount: timelineData.clips.length,
-        totalDuration: timelineData.totalDuration,
-      });
-
       // Call export IPC handler with preset (Story 14: Advanced Export Options)
       setExportStatus('exporting');
-      console.log('[Export] Calling export-video IPC handler with preset:', preset.name);
 
       const exportResult = await window.electron.invoke('export-video', {
         outputPath,
@@ -346,8 +309,6 @@ export const MainLayout: React.FC = () => {
         libraryClips: clips, // Pass library clips for reference
         preset, // Pass preset for resolution, bitrate, fps
       });
-
-      console.log('[Export] Export result:', exportResult);
 
       if (exportResult.success) {
         setExportStatus('complete');
@@ -380,7 +341,6 @@ export const MainLayout: React.FC = () => {
    * Handle preset manager open (Story 14: Advanced Export Options)
    */
   const handleManagePresetsClick = () => {
-    console.log('[Export] Opening preset manager');
     setIsPresetManagerOpen(true);
   };
 
@@ -388,7 +348,6 @@ export const MainLayout: React.FC = () => {
    * Handle preset save (Story 14: Advanced Export Options)
    */
   const handlePresetSave = async (preset: ExportPreset) => {
-    console.log('[Export] Saving preset:', preset.name);
     try {
       const result = await window.electron.invoke('export-save-custom-preset', {
         preset,
@@ -404,7 +363,6 @@ export const MainLayout: React.FC = () => {
    * Handle preset delete (Story 14: Advanced Export Options)
    */
   const handlePresetDelete = async (presetId: string) => {
-    console.log('[Export] Deleting preset:', presetId);
     try {
       const result = await window.electron.invoke('export-delete-custom-preset', {
         presetId,
@@ -420,7 +378,6 @@ export const MainLayout: React.FC = () => {
    * Refresh presets from main process (Story 14: Advanced Export Options)
    */
   const handleRefreshPresets = async () => {
-    console.log('[Export] Refreshing presets');
     try {
       const result = await window.electron.invoke('export-get-presets');
       if (result.presets) {
@@ -438,7 +395,6 @@ export const MainLayout: React.FC = () => {
    * Handle set default preset (Story 14: Advanced Export Options)
    */
   const handleSetDefaultPreset = async (presetId: string | null) => {
-    console.log('[Export] Setting default preset:', presetId);
     try {
       const result = await window.electron.invoke('export-set-default-preset', {
         presetId,
@@ -621,7 +577,7 @@ export const MainLayout: React.FC = () => {
         </div>
 
         {/* Bottom Panel - Timeline */}
-        <div className="h-52 bg-dark-900 border-t border-dark-700 flex flex-col">
+        <div className="h-80 bg-dark-900 border-t border-dark-700 flex flex-col">
           <div className="px-4 py-3 bg-dark-700 border-b border-dark-700 text-xs font-bold uppercase text-dark-400 flex justify-between items-center">
             <span>Timeline</span>
             <button onClick={handleExportClick} className="px-4 py-2 text-xs font-bold bg-blue-400 text-white border-0 rounded cursor-pointer transition-colors duration-200 hover:bg-blue-500 uppercase">

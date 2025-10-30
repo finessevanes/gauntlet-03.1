@@ -218,7 +218,7 @@ const sources = await desktopCapturer.getSources({ types: ['screen', 'window'] }
 
 ## Phase 6: Advanced Export & Effects
 
-### Feature 6: Advanced Export Options
+### Feature 6: Advanced Export Options ✅ Complete
 **STATUS: ✅ REQUIRED**
 
 **REQ-6.1**: Resolution selection

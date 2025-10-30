@@ -198,6 +198,7 @@ export function registerTimelineHandlers(): void {
       const session = getCurrentSession();
 
       if (!session) {
+        console.log('[IPC] Session not initialized');
         return {
           success: false,
           error: 'Session not initialized',
@@ -207,7 +208,10 @@ export function registerTimelineHandlers(): void {
       // Find timeline clip instance by instanceId
       const currentPosition = session.timeline.clips.findIndex(tc => tc.instanceId === instanceId);
 
+      console.log('[IPC] Clip lookup:', { instanceId, currentPosition, totalClips: session.timeline.clips.length });
+
       if (currentPosition === -1) {
+        console.log('[IPC] Clip not found:', instanceId);
         return {
           success: false,
           error: 'Timeline clip instance not found',
@@ -215,7 +219,20 @@ export function registerTimelineHandlers(): void {
       }
 
       // Validate new position
-      if (newPosition < 0 || newPosition >= session.timeline.clips.length) {
+      console.log('[IPC] Position validation:', {
+        newPosition,
+        currentPosition,
+        clipCount: session.timeline.clips.length,
+        isValid: !(newPosition < 0 || newPosition > session.timeline.clips.length),
+        clipBeingMoved: session.timeline.clips[currentPosition]?.instanceId
+      });
+
+      if (newPosition < 0 || newPosition > session.timeline.clips.length) {
+        console.log('[IPC] Position validation FAILED:', {
+          newPosition,
+          clipCount: session.timeline.clips.length,
+          reason: newPosition < 0 ? 'newPosition < 0' : 'newPosition > clipCount'
+        });
         return {
           success: false,
           error: 'Invalid position',
@@ -225,11 +242,21 @@ export function registerTimelineHandlers(): void {
       // Get the timeline clip to move
       const timelineClip = session.timeline.clips[currentPosition];
 
+      console.log('[IPC] Performing reorder:', {
+        instanceId,
+        from: currentPosition,
+        to: newPosition,
+        clipDuration: timelineClip.outPoint - timelineClip.inPoint,
+        clipId: timelineClip.clipId
+      });
+
       // Remove clip from old position
       session.timeline.clips.splice(currentPosition, 1);
+      console.log('[IPC] After remove - clips remaining:', session.timeline.clips.length);
 
       // Insert at new position
       session.timeline.clips.splice(newPosition, 0, timelineClip);
+      console.log('[IPC] After insert - clips count:', session.timeline.clips.length, 'Clips:', session.timeline.clips.map(c => ({ id: c.instanceId, clipId: c.clipId })));
 
       // Calculate start times for all timeline clips
       let currentTime = 0;
@@ -237,6 +264,7 @@ export function registerTimelineHandlers(): void {
         tc.startTime = currentTime;
         currentTime += (tc.outPoint - tc.inPoint);
       });
+      console.log('[IPC] Start times recalculated, new duration:', currentTime);
 
       // Recalculate timeline duration using timeline clip trim points
       session.timeline.duration = session.timeline.clips.reduce((total, timelineClip) => {
@@ -246,18 +274,22 @@ export function registerTimelineHandlers(): void {
       // Save session
       const saved = persistSession(session);
 
+      console.log('[IPC] Session persistence result:', { saved, duration: session.timeline.duration });
+
       if (!saved) {
+        console.log('[IPC] Failed to persist session');
         return {
           success: false,
           error: 'Failed to save session',
         };
       }
 
-      console.log('[IPC] Clip reordered:', {
+      console.log('[IPC] Clip reordered successfully:', {
         instanceId,
         from: currentPosition,
         to: newPosition,
-        timeline: session.timeline.clips,
+        newClipCount: session.timeline.clips.length,
+        duration: session.timeline.duration
       });
 
       return {
@@ -267,7 +299,10 @@ export function registerTimelineHandlers(): void {
       };
 
     } catch (error) {
-      console.error('[IPC] timeline:reorder_timeline_clip error:', error);
+      console.error('[IPC] timeline:reorder_timeline_clip EXCEPTION:', {
+        error: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined
+      });
       return {
         success: false,
         error: `Failed to reorder clip: ${error instanceof Error ? error.message : String(error)}`,

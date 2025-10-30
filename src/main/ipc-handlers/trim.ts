@@ -89,6 +89,24 @@ export function registerTrimHandlers() {
         trimmedDuration: correctedOutPoint - correctedInPoint,
       });
 
+      // Recalculate start times for all timeline clips (gap-filling)
+      let currentTime = 0;
+      console.log('[Trim IPC] Recalculating startTimes for all clips. Total clips:', session.timeline.clips.length);
+      session.timeline.clips.forEach((tc, index) => {
+        const oldStartTime = tc.startTime;
+        tc.startTime = currentTime;
+        const duration = tc.outPoint - tc.inPoint;
+        console.log(`[Trim IPC] Clip ${index}: oldStartTime=${oldStartTime}, newStartTime=${currentTime}, duration=${duration}, inPoint=${tc.inPoint}, outPoint=${tc.outPoint}`);
+        currentTime += duration;
+      });
+
+      // Recalculate timeline duration using timeline clip trim points
+      const oldDuration = session.timeline.duration;
+      session.timeline.duration = session.timeline.clips.reduce((total, tc) => {
+        return total + (tc.outPoint - tc.inPoint);
+      }, 0);
+      console.log('[Trim IPC] Duration recalculated:', { oldDuration, newDuration: session.timeline.duration });
+
       // Save session state
       const saved = saveSession(session);
       if (!saved) {
@@ -103,6 +121,8 @@ export function registerTrimHandlers() {
         success: true,
         clip,
         timelineClip,
+        clips: session.timeline.clips, // Return all clips with updated startTimes for frontend to sync
+        duration: session.timeline.duration,
       };
     } catch (error) {
       console.error('[Trim IPC] Error trimming clip:', error);
@@ -160,6 +180,24 @@ export function registerTrimHandlers() {
         duration: clip.duration,
       });
 
+      // Recalculate start times for all timeline clips (gap-filling)
+      let currentTime = 0;
+      console.log('[Trim IPC] Recalculating startTimes for all clips after reset. Total clips:', session.timeline.clips.length);
+      session.timeline.clips.forEach((tc, index) => {
+        const oldStartTime = tc.startTime;
+        tc.startTime = currentTime;
+        const duration = tc.outPoint - tc.inPoint;
+        console.log(`[Trim IPC] Clip ${index}: oldStartTime=${oldStartTime}, newStartTime=${currentTime}, duration=${duration}, inPoint=${tc.inPoint}, outPoint=${tc.outPoint}`);
+        currentTime += duration;
+      });
+
+      // Recalculate timeline duration using timeline clip trim points
+      const oldDuration = session.timeline.duration;
+      session.timeline.duration = session.timeline.clips.reduce((total, tc) => {
+        return total + (tc.outPoint - tc.inPoint);
+      }, 0);
+      console.log('[Trim IPC] Duration recalculated after reset:', { oldDuration, newDuration: session.timeline.duration });
+
       // Save session state
       const saved = saveSession(session);
       if (!saved) {
@@ -173,6 +211,9 @@ export function registerTrimHandlers() {
       return {
         success: true,
         clip,
+        timelineClip,
+        clips: session.timeline.clips, // Return all clips with updated startTimes for frontend to sync
+        duration: session.timeline.duration,
       };
     } catch (error) {
       console.error('[Trim IPC] Error resetting trim:', error);

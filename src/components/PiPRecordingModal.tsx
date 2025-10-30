@@ -169,7 +169,6 @@ export const PiPRecordingModal: React.FC<PiPRecordingModalProps> = ({
    */
   const initializeModal = async () => {
     try {
-      console.log('[PiPModal] Initializing modal - checking permissions upfront...');
       setStage('screen-selection');
       setError(null);
       setErrorMessage('');
@@ -178,7 +177,6 @@ export const PiPRecordingModal: React.FC<PiPRecordingModalProps> = ({
       // Check screen recording permission FIRST - don't look for screens until permission granted
       const screenPermissionCheck = await checkScreenRecordingPermission();
       if (!screenPermissionCheck.granted) {
-        console.log('[PiPModal] Screen recording permission denied');
         setLoading(false);
         openPermissionModalWithCallbacks({
           permissionModal,
@@ -191,7 +189,6 @@ export const PiPRecordingModal: React.FC<PiPRecordingModalProps> = ({
       }
 
       // Only after permission is confirmed, get available screens
-      console.log('[PiPModal] Screen recording permission granted, now fetching screens...');
       const screensResponse = await window.electron.recording.getScreens();
 
       // Permission errors should have been caught upfront, so handle other errors
@@ -226,8 +223,6 @@ export const PiPRecordingModal: React.FC<PiPRecordingModalProps> = ({
       await checkMicrophonePermission();
       await enumerateAudioDevices();
       await enumerateCameraDevices();
-
-      console.log('[PiPModal] Initialization complete');
     } catch (error) {
       console.error('[PiPModal] Initialization error:', error);
       setStage('error');
@@ -280,11 +275,9 @@ export const PiPRecordingModal: React.FC<PiPRecordingModalProps> = ({
     }
 
     // Check camera permission UPFRONT before attempting to access webcam
-    console.log('[PiPModal] Checking camera permission upfront...');
     const cameraPermissionCheck = await checkCameraPermission();
 
     if (!cameraPermissionCheck.granted) {
-      console.log('[PiPModal] Camera permission denied');
       setCameraAvailable(false);
       setStage('error');
       openPermissionModalWithCallbacks({
@@ -299,8 +292,6 @@ export const PiPRecordingModal: React.FC<PiPRecordingModalProps> = ({
 
     try {
       // Initialize webcam preview for settings stage
-      console.log('[PiPModal] Requesting webcam access...');
-
       // Always request video, but audio depends on audioMode
       // We'll request audio here for preview, but we'll filter tracks during recording based on audioMode
       const stream = await navigator.mediaDevices.getUserMedia({
@@ -368,13 +359,11 @@ export const PiPRecordingModal: React.FC<PiPRecordingModalProps> = ({
 
     for (const mimeType of mimeTypes) {
       if (MediaRecorder.isTypeSupported(mimeType)) {
-        console.log('[PiPModal] Using supported MIME type:', mimeType);
         return mimeType;
       }
     }
 
     // Fallback to empty string - browser will choose appropriate codecs
-    console.warn('[PiPModal] No explicitly supported MIME types found, using default');
     return '';
   };
 
@@ -383,7 +372,6 @@ export const PiPRecordingModal: React.FC<PiPRecordingModalProps> = ({
    */
   const handleStartRecording = async () => {
     try {
-      console.log('[PiPModal] Starting PiP recording...');
       setStage('recording');
       setErrorMessage('');
 
@@ -400,13 +388,10 @@ export const PiPRecordingModal: React.FC<PiPRecordingModalProps> = ({
       setRecordingId(startResponse.recordingId);
 
       // Get screen stream via Electron's chromeMediaSource (not standard getDisplayMedia)
-      console.log('[PiPModal] Getting screen stream for screen ID:', settings.screenId);
-
       let screenSources: MediaStream;
 
       try {
         // PiP always captures screen video without audio (audio comes from microphone only)
-        console.log('[PiPModal] Capturing screen video only (audio from microphone)...');
         screenSources = await navigator.mediaDevices.getUserMedia({
           video: {
             mandatory: {
@@ -441,21 +426,12 @@ export const PiPRecordingModal: React.FC<PiPRecordingModalProps> = ({
         ...webcamAudioTracks  // Always include microphone audio
       ];
 
-      console.log('[PiPModal] Recording webcam with microphone audio');
-
       // Create a new MediaStream with the tracks we want to record
       const webcamRecordingStream = new MediaStream(webcamTracksToRecord);
-
-      console.log('[PiPModal] Webcam recording stream tracks:', {
-        video: webcamRecordingStream.getVideoTracks().length,
-        audio: webcamRecordingStream.getAudioTracks().length,
-      });
 
       // Get supported MIME type
       const mimeType = getSupportedMimeType();
       const recorderOptions = mimeType ? { mimeType } : {};
-
-      console.log('[PiPModal] Creating MediaRecorders with options:', recorderOptions);
 
       // Create MediaRecorders for both streams
       let screenRecorder: MediaRecorder;
@@ -463,7 +439,6 @@ export const PiPRecordingModal: React.FC<PiPRecordingModalProps> = ({
 
       try {
         screenRecorder = new MediaRecorder(screenSources, recorderOptions);
-        console.log('[PiPModal] Screen recorder created successfully');
       } catch (screenRecorderError) {
         console.error('[PiPModal] Failed to create screen recorder:', screenRecorderError);
         throw new Error(`Failed to create screen recorder: ${screenRecorderError instanceof Error ? screenRecorderError.message : 'Unknown error'}`);
@@ -471,7 +446,6 @@ export const PiPRecordingModal: React.FC<PiPRecordingModalProps> = ({
 
       try {
         webcamRecorder = new MediaRecorder(webcamRecordingStream, recorderOptions);
-        console.log('[PiPModal] Webcam recorder created successfully');
       } catch (webcamRecorderError) {
         console.error('[PiPModal] Failed to create webcam recorder:', webcamRecorderError);
         screenRecorder.stop();
@@ -505,7 +479,6 @@ export const PiPRecordingModal: React.FC<PiPRecordingModalProps> = ({
       try {
         screenRecorder.start(1000); // Collect data every 1 second
         webcamRecorder.start(1000);
-        console.log('[PiPModal] Both recorders started successfully');
       } catch (startError) {
         console.error('[PiPModal] Failed to start recorders:', startError);
         throw new Error(`Failed to start recorders: ${startError instanceof Error ? startError.message : 'Unknown error'}`);
@@ -523,8 +496,6 @@ export const PiPRecordingModal: React.FC<PiPRecordingModalProps> = ({
 
       // Notify main process
       await window.electron.recording.setWebcamStatus(true);
-
-      console.log('[PiPModal] Recording started successfully');
     } catch (error) {
       console.error('[PiPModal] Start recording error:', error);
       setStage('error');
@@ -538,8 +509,6 @@ export const PiPRecordingModal: React.FC<PiPRecordingModalProps> = ({
    */
   const handleStopRecording = async () => {
     try {
-      console.log('[PiPModal] Stopping PiP recording...');
-
       // Stop timer
       if (timerIntervalRef.current) {
         clearInterval(timerIntervalRef.current);
@@ -574,11 +543,6 @@ export const PiPRecordingModal: React.FC<PiPRecordingModalProps> = ({
       const screenBlob = new Blob(screenChunksRef.current, { type: 'video/webm' });
       const webcamBlob = new Blob(webcamChunksRef.current, { type: 'video/webm' });
 
-      console.log('[PiPModal] Recording stopped, blobs created:', {
-        screenSize: screenBlob.size,
-        webcamSize: webcamBlob.size,
-      });
-
       // Convert blobs to ArrayBuffers and save to temp files
       const screenArrayBuffer = await screenBlob.arrayBuffer();
       const webcamArrayBuffer = await webcamBlob.arrayBuffer();
@@ -595,8 +559,6 @@ export const PiPRecordingModal: React.FC<PiPRecordingModalProps> = ({
         new Uint8Array(webcamArrayBuffer)
       );
 
-      console.log('[PiPModal] Temp files saved, starting composite...');
-
       // Close modal immediately (compositing will happen in background)
       onClose();
       cleanup();
@@ -605,8 +567,6 @@ export const PiPRecordingModal: React.FC<PiPRecordingModalProps> = ({
       const timestamp = new Date().toISOString().replace(/[-:]/g, '').split('.')[0].replace('T', '_');
       const filename = `PiP_Recording_${timestamp}.mp4`;
       const outputPath = await window.electron.invoke('app:get-recordings-path', filename);
-
-      console.log('[PiPModal] Output path:', outputPath);
 
       // Composite videos using FFmpeg (happens after modal closes)
       const compositeResponse = await window.electron.pip.compositePiPVideos({
@@ -619,8 +579,6 @@ export const PiPRecordingModal: React.FC<PiPRecordingModalProps> = ({
       if (!compositeResponse.success || !compositeResponse.compositeFile) {
         throw new Error(compositeResponse.error || 'Failed to composite videos');
       }
-
-      console.log('[PiPModal] Composite created:', compositeResponse.compositeFile);
 
       // Save settings for next time
       await window.electron.pip.savePipSettings({ settings });
@@ -642,8 +600,6 @@ export const PiPRecordingModal: React.FC<PiPRecordingModalProps> = ({
    * Cleanup streams and recorders
    */
   const cleanup = () => {
-    console.log('[PiPModal] Cleaning up...');
-
     if (timerIntervalRef.current) {
       clearInterval(timerIntervalRef.current);
       timerIntervalRef.current = null;
@@ -1045,10 +1001,10 @@ export const PiPRecordingModal: React.FC<PiPRecordingModalProps> = ({
                     zIndex: 10,
                   }}
                   onLoadedMetadata={(e) => {
-                    console.log('[PiPModal] Webcam video metadata loaded');
+                    // Metadata loaded
                   }}
                   onPlay={(e) => {
-                    console.log('[PiPModal] Webcam video playing');
+                    // Video playing
                   }}
                   onError={(e) => {
                     console.error('[PiPModal] Webcam video error:', e);
