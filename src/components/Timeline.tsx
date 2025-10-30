@@ -151,10 +151,19 @@ export const Timeline: React.FC = () => {
 
     const trimOverrides = timeline.trimOverrides || [];
 
+    // Get the trim override for THIS instance (if it exists)
+    const thisInstanceOverride = trimOverrides.find(o => o.instanceId === instanceId);
+    const effectiveClip = thisInstanceOverride
+      ? { ...clip, inPoint: thisInstanceOverride.inPoint, outPoint: thisInstanceOverride.outPoint }
+      : clip;
+
     console.log('[Timeline] Trim start:', {
       clipId: clipId.substring(0, 8),
       instanceId: instanceId.substring(0, 8),
       edge,
+      hasOverride: !!thisInstanceOverride,
+      effectiveInPoint: effectiveClip.inPoint,
+      effectiveOutPoint: effectiveClip.outPoint,
       currentOverrides: trimOverrides.map(o => ({ id: o.instanceId.substring(0, 8), in: o.inPoint, out: o.outPoint })),
     });
 
@@ -176,7 +185,8 @@ export const Timeline: React.FC = () => {
 
     console.log('[Timeline] Trim start time calculated:', { instanceId: instanceId.substring(0, 8), startTime });
 
-    trimDrag.startDrag(clipId, instanceId, edge, e, clip, startTime);
+    // Pass the effective clip (with trim override applied) to startDrag
+    trimDrag.startDrag(clipId, instanceId, edge, e, effectiveClip, startTime);
   }, [clips, timeline, trimDrag]);
 
   // Measure container width for auto-fit calculation
