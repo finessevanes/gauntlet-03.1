@@ -13,7 +13,7 @@ import { TimelineClip } from './TimelineClip';
 import { TrimTooltip } from './TrimTooltip';
 import { useTrimDrag } from '../hooks/useTrimDrag';
 import { useSplit } from '../hooks/useSplit';
-import { calculateAutoFitZoom, getPixelsPerSecond, logTimelineClipDurations } from '../utils/timecode';
+import { calculateAutoFitZoom, getPixelsPerSecond } from '../utils/timecode';
 
 // Timeline horizontal padding (px) - ensures edges are accessible for trimming
 const TIMELINE_PADDING = 20;
@@ -287,8 +287,6 @@ export const Timeline: React.FC = () => {
         let targetPosition = timeline.clips.length; // Default to end
         let cumulativeTime = 0;
 
-        console.log(`[Timeline.handleDragOver] dragX=${dragX}, trackRect.left=${trackRect.left}, scrollLeft=${trackRef.current.scrollLeft}, clipCount=${timeline.clips.length}`);
-
         for (let i = 0; i < timeline.clips.length; i++) {
           const tc = timeline.clips[i];
           const clipDuration = tc.outPoint - tc.inPoint;
@@ -296,11 +294,8 @@ export const Timeline: React.FC = () => {
           const clipStartPixel = TIMELINE_PADDING + cumulativeTime * pixelsPerSecond;
           const clipMiddle = clipStartPixel + clipPixelWidth / 2;
 
-          console.log(`[Timeline.handleDragOver] clip[${i}]: startPixel=${clipStartPixel}, middle=${clipMiddle}, width=${clipPixelWidth}, duration=${clipDuration}`);
-
           if (dragX < clipMiddle) {
             targetPosition = i;
-            console.log(`[Timeline.handleDragOver] dragX < clipMiddle, setting targetPosition=${i}`);
             break;
           }
 
@@ -310,8 +305,6 @@ export const Timeline: React.FC = () => {
         // Calculate final position (accounting for where the dragged clip will be removed from)
         const draggedClipIndex = timeline.clips.findIndex(tc => tc.instanceId === draggedClipId);
         const finalPosition = targetPosition > draggedClipIndex ? targetPosition - 1 : targetPosition;
-
-        console.log(`[Timeline.handleDragOver] targetPosition=${targetPosition}, draggedClipIndex=${draggedClipIndex}, finalPosition=${finalPosition}, settingIndex=${finalPosition !== draggedClipIndex ? targetPosition : 'null'}`);
 
         // Only update if this is a different position
         if (finalPosition !== draggedClipIndex) {
@@ -339,18 +332,13 @@ export const Timeline: React.FC = () => {
     const timelineClipId = e.dataTransfer.getData('timelineClipId');
     const type = e.dataTransfer.getData('type');
 
-    console.log(`[Timeline.handleDrop] clipId=${clipId}, timelineClipId=${timelineClipId}, type=${type}, dropTargetIndex=${dropTargetIndex}`);
-
     // Handle timeline clip reorders - use the dropTargetIndex (where the blue indicator is)
     if (type === 'reorder' && timelineClipId) {
-      console.log(`[Timeline.handleDrop] REORDER: timelineClipId=${timelineClipId}, dropTargetIndex=${dropTargetIndex}`);
       // If dropTargetIndex is set, use it (drop landed on Timeline background with indicator)
       if (dropTargetIndex !== null) {
-        console.log(`[Timeline.handleDrop] Calling handleReorder with index=${dropTargetIndex}`);
         await handleReorder(timelineClipId, dropTargetIndex);
         return;
       } else {
-        console.log(`[Timeline.handleDrop] dropTargetIndex is null, returning without reorder`);
         return;
       }
     }
@@ -375,8 +363,6 @@ export const Timeline: React.FC = () => {
         // Fetch updated timeline state
         const state = await window.electron.timeline.getTimelineState();
         updateTimeline({ clips: state.clips, duration: state.duration });
-        // Log all clip durations after adding
-        logTimelineClipDurations(clips, { clips: state.clips, duration: state.duration });
       }
     } catch (error) {
       // Handle error silently
@@ -403,8 +389,6 @@ export const Timeline: React.FC = () => {
         // Fetch updated timeline state
         const state = await window.electron.timeline.getTimelineState();
         updateTimeline({ clips: state.clips, duration: state.duration });
-        // Log all clip durations after adding
-        logTimelineClipDurations(clips, { clips: state.clips, duration: state.duration });
       }
     } catch (error) {
       // Handle error silently
@@ -442,26 +426,20 @@ export const Timeline: React.FC = () => {
   const handleReorder = async (instanceId: string, newPosition: number) => {
     const currentPosition = timeline.clips.findIndex(tc => tc.instanceId === instanceId);
 
-    console.log(`[Timeline.handleReorder] instanceId=${instanceId}, currentPosition=${currentPosition}, newPosition=${newPosition}`);
-
     // Validation: Don't reorder if position hasn't changed
     if (currentPosition === newPosition) {
-      console.log(`[Timeline.handleReorder] Position unchanged, returning without reorder`);
       setDraggedClipId(null);
       setDropTargetIndex(null);
       return;
     }
 
     try {
-      console.log(`[Timeline.handleReorder] Calling electron.timeline.reorderClip(${instanceId}, ${newPosition})`);
       const result = await window.electron.timeline.reorderClip(instanceId, newPosition);
 
-      console.log(`[Timeline.handleReorder] Result: success=${result.success}, updatedTimeline=${result.updatedTimeline ? result.updatedTimeline.length + ' clips' : 'undefined'}`);
       if (result.success && result.updatedTimeline) {
-        updateTimeline({ clips: result.updatedTimeline, duration: result.duration || timeline.duration });
+        updateTimeline({ clips: result.updatedTimeline, duration: timeline.duration });
       }
     } catch (error) {
-      console.log(`[Timeline.handleReorder] Error:`, error);
       // Handle error silently
     } finally {
       setDraggedClipId(null);
@@ -577,18 +555,6 @@ export const Timeline: React.FC = () => {
         setPreviewSource('timeline');
       }
     }
-  };
-
-  const canPlayTimeline = timeline.clips.length > 0 && timeline.duration > 0;
-
-  const handleTogglePlay = () => {
-    if (!canPlayTimeline) return;
-    if (previewSource !== 'timeline') {
-      setPreviewSource('timeline');
-      setIsPlaying(true);
-      return;
-    }
-    setIsPlaying(!isPlaying);
   };
 
   return (
