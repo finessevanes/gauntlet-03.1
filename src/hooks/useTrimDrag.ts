@@ -11,6 +11,7 @@ const MIN_DURATION = 0.033; // Minimum 1 frame at 30fps
 
 interface TrimDragState {
   clipId: string;
+  instanceId: string;          // Timeline instance ID for per-instance trimming
   edge: 'left' | 'right';
   startX: number;              // Mouse X position at drag start
   startInPoint: number;        // Original inPoint at drag start
@@ -31,13 +32,13 @@ interface UseTrimDragResult {
 
   // Methods
   checkEdgeHover: (clipId: string, mouseX: number, clipRect: DOMRect) => 'left' | 'right' | null;
-  startDrag: (clipId: string, edge: 'left' | 'right', e: React.MouseEvent, clip: Clip, startTime: number) => void;
+  startDrag: (clipId: string, instanceId: string, edge: 'left' | 'right', e: React.MouseEvent, clip: Clip, startTime: number) => void;
   endDrag: () => void;
 }
 
 export function useTrimDrag(
   pixelsPerSecond: number,
-  onTrimComplete?: (clipId: string, inPoint: number, outPoint: number) => void
+  onTrimComplete?: (clipId: string, instanceId: string, inPoint: number, outPoint: number) => void
 ): UseTrimDragResult {
   const [hoveredEdge, setHoveredEdge] = useState<{ clipId: string; edge: 'left' | 'right' } | null>(null);
   const [dragging, setDragging] = useState<TrimDragState | null>(null);
@@ -68,15 +69,17 @@ export function useTrimDrag(
   // Start drag operation
   const startDrag = useCallback((
     clipId: string,
+    instanceId: string,
     edge: 'left' | 'right',
     e: React.MouseEvent,
     clip: Clip,
     startTime: number
   ) => {
-    console.log('[useTrimDrag] Starting drag:', { clipId: clipId.substring(0, 8), edge, clipDuration: clip.duration });
+    console.log('[useTrimDrag] Starting drag:', { clipId: clipId.substring(0, 8), instanceId: instanceId.substring(0, 8), edge, clipDuration: clip.duration });
 
     const dragState: TrimDragState = {
       clipId,
+      instanceId,
       edge,
       startX: e.clientX,
       startInPoint: clip.inPoint,
@@ -95,15 +98,16 @@ export function useTrimDrag(
   // End drag operation
   const endDrag = useCallback(() => {
     if (dragStateRef.current && onTrimComplete && (draggedInPoint !== null && draggedOutPoint !== null)) {
-      const { clipId } = dragStateRef.current;
+      const { clipId, instanceId } = dragStateRef.current;
 
       console.log('[useTrimDrag] Ending drag, calling onTrimComplete:', {
         clipId: clipId.substring(0, 8),
+        instanceId: instanceId.substring(0, 8),
         inPoint: draggedInPoint,
         outPoint: draggedOutPoint,
       });
 
-      onTrimComplete(clipId, draggedInPoint, draggedOutPoint);
+      onTrimComplete(clipId, instanceId, draggedInPoint, draggedOutPoint);
     }
 
     setDragging(null);

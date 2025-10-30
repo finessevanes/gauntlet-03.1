@@ -178,17 +178,17 @@ contextBridge.exposeInMainWorld('electron', {
    */
   trim: {
     /**
-     * Trim a clip to new in/out points
+     * Trim a clip to new in/out points (per-instance override)
      */
-    trimClip: (clipId: string, inPoint: number, outPoint: number): Promise<TrimClipResponse> => {
-      return ipcRenderer.invoke('trim_clip', { clipId, inPoint, outPoint } as TrimClipRequest);
+    trimClip: (clipId: string, instanceId: string, inPoint: number, outPoint: number): Promise<TrimClipResponse> => {
+      return ipcRenderer.invoke('trim_clip', { clipId, instanceId, inPoint, outPoint } as TrimClipRequest);
     },
 
     /**
-     * Reset trim to full duration
+     * Reset trim to full duration (per-instance override)
      */
-    resetTrim: (clipId: string): Promise<ResetTrimResponse> => {
-      return ipcRenderer.invoke('reset_trim', { clipId } as ResetTrimRequest);
+    resetTrim: (clipId: string, instanceId: string): Promise<ResetTrimResponse> => {
+      return ipcRenderer.invoke('reset_trim', { clipId, instanceId } as ResetTrimRequest);
     },
   },
 

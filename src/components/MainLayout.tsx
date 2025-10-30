@@ -21,6 +21,9 @@ import { useScreenRecorder } from '../hooks/useScreenRecorder';
 import { Timeline } from './Timeline';
 import { PreviewPlayer } from './PreviewPlayer';
 import ExportModal from './ExportModal';
+import PresetSelector from './PresetSelector';
+import PresetManager from './PresetManager';
+import { ExportPreset } from '../types/export';
 import { useSessionStore } from '../store/sessionStore';
 
 export const MainLayout: React.FC = () => {
@@ -30,6 +33,24 @@ export const MainLayout: React.FC = () => {
   const { isRecording, startRecording, stopRecording, cancelRecording } = useScreenRecorder();
   const [isRecordDialogOpen, setIsRecordDialogOpen] = useState(false);
   const [isStopping, setIsStopping] = useState(false);
+
+  // Resizable panel state
+  const [libraryWidth, setLibraryWidth] = useState(20); // percentage
+  const [isDraggingDivider, setIsDraggingDivider] = useState(false);
+  const MIN_LIBRARY_WIDTH_PX = 300;
+
+  // Ensure library width respects minimum on mount
+  useEffect(() => {
+    const container = document.querySelector('[data-layout="main-container"]') as HTMLElement;
+    if (container) {
+      const containerWidth = container.getBoundingClientRect().width;
+      const minWidthPercent = (MIN_LIBRARY_WIDTH_PX / containerWidth) * 100;
+      if (libraryWidth < minWidthPercent) {
+        setLibraryWidth(minWidthPercent);
+        console.log(`[MainLayout] Enforcing minimum library width: ${minWidthPercent.toFixed(2)}%`);
+      }
+    }
+  }, []);
 
   // Webcam recording state (Story S10)
   const [isWebcamModalOpen, setIsWebcamModalOpen] = useState(false);
@@ -47,9 +68,74 @@ export const MainLayout: React.FC = () => {
   });
   const [exportOutputPath, setExportOutputPath] = useState<string | undefined>();
 
+  // Preset selection state (Story 14: Advanced Export Options)
+  const [isPresetSelectorOpen, setIsPresetSelectorOpen] = useState(false);
+  const [isPresetManagerOpen, setIsPresetManagerOpen] = useState(false);
+  const [presets, setPresets] = useState<ExportPreset[]>([]);
+  const [defaultPresetId, setDefaultPresetId] = useState<string | null>(null);
+  const [sourceResolution, setSourceResolution] = useState({ width: 1920, height: 1080 });
+  const [selectedPreset, setSelectedPreset] = useState<ExportPreset | null>(null);
+
   // Get session data for export
   const clips = useSessionStore((state) => state.clips);
   const timeline = useSessionStore((state) => state.timeline);
+
+  /**
+   * Load presets on component mount (Story 14: Advanced Export Options)
+   */
+  useEffect(() => {
+    const loadPresets = async () => {
+      try {
+        const result = await window.electron.invoke('export-get-presets');
+        if (result.presets) {
+          setPresets(result.presets);
+          if (result.defaultPresetId) {
+            setDefaultPresetId(result.defaultPresetId);
+          }
+        }
+      } catch (error) {
+        console.error('[MainLayout] Failed to load presets:', error);
+        // Presets will be set to empty array, which is okay
+      }
+    };
+
+    loadPresets();
+  }, []);
+
+  /**
+   * Handle divider drag to resize library/preview panels
+   */
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!isDraggingDivider) return;
+
+      const container = document.querySelector('[data-layout="main-container"]') as HTMLElement;
+      if (!container) return;
+
+      const containerRect = container.getBoundingClientRect();
+      const containerWidth = containerRect.width;
+      const newWidth = ((e.clientX - containerRect.left) / containerWidth) * 100;
+      const minWidthPercent = (MIN_LIBRARY_WIDTH_PX / containerWidth) * 100;
+
+      // Constrain between 300px minimum and 60% maximum
+      if (newWidth >= minWidthPercent && newWidth <= 60) {
+        setLibraryWidth(newWidth);
+      }
+    };
+
+    const handleMouseUp = () => {
+      setIsDraggingDivider(false);
+    };
+
+    if (isDraggingDivider) {
+      document.addEventListener('mousemove', handleMouseMove);
+      document.addEventListener('mouseup', handleMouseUp);
+      return () => {
+        document.removeEventListener('mousemove', handleMouseMove);
+        document.removeEventListener('mouseup', handleMouseUp);
+      };
+    }
+  }, [isDraggingDivider]);
 
   /**
    * Handle Record Screen button click
@@ -170,11 +256,42 @@ export const MainLayout: React.FC = () => {
 
     console.log('[Export] Timeline has', timeline.clips.length, 'clips');
 
-    // Open save dialog
-    const timestamp = new Date().toISOString().replace(/[-:]/g, '').split('.')[0].replace('T', '_');
-    const defaultFilename = `Klippy_Export_${timestamp}.mp4`;
+    // Determine source resolution (Story 14: Advanced Export Options)
+    const maxResolution = timeline.clips.reduce(
+      (max, tc) => {
+        const clip = clips.find((c) => c.id === tc.clipId);
+        if (clip) {
+          return {
+            width: Math.max(max.width, clip.resolution?.width || 1920),
+            height: Math.max(max.height, clip.resolution?.height || 1080),
+          };
+        }
+        return max;
+      },
+      { width: 1920, height: 1080 }
+    );
 
-    console.log('[Export] Opening save dialog with default filename:', defaultFilename);
+    console.log('[Export] Source resolution:', maxResolution);
+    setSourceResolution(maxResolution);
+
+    // Show preset selector (Story 14: Advanced Export Options)
+    console.log('[Export] Opening preset selector');
+    setIsPresetSelectorOpen(true);
+  };
+
+  /**
+   * Handle preset selection (Story 14: Advanced Export Options)
+   */
+  const handlePresetSelected = async (preset: ExportPreset) => {
+    console.log('[Export] Preset selected:', preset.name);
+    setSelectedPreset(preset);
+    setIsPresetSelectorOpen(false);
+
+    // Now open the save dialog with preset-specific filename
+    const timestamp = new Date().toISOString().replace(/[-:]/g, '').split('.')[0].replace('T', '_');
+    const defaultFilename = `Klippy_Export_${preset.name}_${timestamp}.mp4`;
+
+    console.log('[Export] Opening save dialog with filename:', defaultFilename);
 
     try {
       const result = await window.electron.invoke('dialog:showSaveDialog', {
@@ -188,6 +305,7 @@ export const MainLayout: React.FC = () => {
       // User cancelled
       if (result.canceled) {
         console.log('[Export] User cancelled save dialog');
+        setSelectedPreset(null);
         return;
       }
 
@@ -203,11 +321,9 @@ export const MainLayout: React.FC = () => {
       });
       setIsExportModalOpen(true);
 
-      // Build timeline data with full clip details
+      // Build timeline data with timeline clips and library clips
       const timelineData = {
-        clips: timeline.clips
-          .map((tc) => clips.find((c) => c.id === tc.clipId))
-          .filter((c) => c !== undefined),
+        clips: timeline.clips,
         totalDuration: timeline.duration,
       };
 
@@ -216,13 +332,15 @@ export const MainLayout: React.FC = () => {
         totalDuration: timelineData.totalDuration,
       });
 
-      // Call export IPC handler
+      // Call export IPC handler with preset (Story 14: Advanced Export Options)
       setExportStatus('exporting');
-      console.log('[Export] Calling export-video IPC handler');
+      console.log('[Export] Calling export-video IPC handler with preset:', preset.name);
 
       const exportResult = await window.electron.invoke('export-video', {
         outputPath,
         timeline: timelineData,
+        libraryClips: clips, // Pass library clips for reference
+        preset, // Pass preset for resolution, bitrate, fps
       });
 
       console.log('[Export] Export result:', exportResult);
@@ -251,6 +369,81 @@ export const MainLayout: React.FC = () => {
         estimatedTimeRemaining: 0,
         errorMessage: error instanceof Error ? error.message : 'Export failed',
       });
+    }
+  };
+
+  /**
+   * Handle preset manager open (Story 14: Advanced Export Options)
+   */
+  const handleManagePresetsClick = () => {
+    console.log('[Export] Opening preset manager');
+    setIsPresetManagerOpen(true);
+  };
+
+  /**
+   * Handle preset save (Story 14: Advanced Export Options)
+   */
+  const handlePresetSave = async (preset: ExportPreset) => {
+    console.log('[Export] Saving preset:', preset.name);
+    try {
+      const result = await window.electron.invoke('export-save-custom-preset', {
+        preset,
+      });
+      return result;
+    } catch (error) {
+      console.error('[Export] Failed to save preset:', error);
+      return { success: false, error: 'Failed to save preset' };
+    }
+  };
+
+  /**
+   * Handle preset delete (Story 14: Advanced Export Options)
+   */
+  const handlePresetDelete = async (presetId: string) => {
+    console.log('[Export] Deleting preset:', presetId);
+    try {
+      const result = await window.electron.invoke('export-delete-custom-preset', {
+        presetId,
+      });
+      return result;
+    } catch (error) {
+      console.error('[Export] Failed to delete preset:', error);
+      return { success: false, error: 'Failed to delete preset' };
+    }
+  };
+
+  /**
+   * Refresh presets from main process (Story 14: Advanced Export Options)
+   */
+  const handleRefreshPresets = async () => {
+    console.log('[Export] Refreshing presets');
+    try {
+      const result = await window.electron.invoke('export-get-presets');
+      if (result.presets) {
+        setPresets(result.presets);
+        if (result.defaultPresetId) {
+          setDefaultPresetId(result.defaultPresetId);
+        }
+      }
+    } catch (error) {
+      console.error('[Export] Failed to refresh presets:', error);
+    }
+  };
+
+  /**
+   * Handle set default preset (Story 14: Advanced Export Options)
+   */
+  const handleSetDefaultPreset = async (presetId: string | null) => {
+    console.log('[Export] Setting default preset:', presetId);
+    try {
+      const result = await window.electron.invoke('export-set-default-preset', {
+        presetId,
+      });
+      if (result.success) {
+        setDefaultPresetId(presetId);
+      }
+    } catch (error) {
+      console.error('[Export] Failed to set default preset:', error);
     }
   };
 
@@ -309,7 +502,7 @@ export const MainLayout: React.FC = () => {
   return (
     <PermissionProvider>
       <DragDropZone onDrop={importVideos}>
-        <div style={styles.container}>
+        <div className="flex flex-col h-screen bg-dark-900 text-white" data-layout="main-container">
         {/* Recording Indicator (shown when recording) */}
         {isRecording && <RecordingIndicator onStop={handleStopRecording} isStopping={isStopping} />}
 
@@ -360,16 +553,39 @@ export const MainLayout: React.FC = () => {
           outputPath={exportOutputPath}
         />
 
+        {/* Preset Selector Modal (Story 14: Advanced Export Options) */}
+        <PresetSelector
+          isOpen={isPresetSelectorOpen}
+          presets={presets}
+          sourceResolution={sourceResolution}
+          defaultPresetId={defaultPresetId}
+          onSelect={handlePresetSelected}
+          onCancel={() => setIsPresetSelectorOpen(false)}
+          onManagePresets={handleManagePresetsClick}
+          onSetDefault={handleSetDefaultPreset}
+        />
+
+        {/* Preset Manager Modal (Story 14: Advanced Export Options) */}
+        <PresetManager
+          isOpen={isPresetManagerOpen}
+          presets={presets}
+          onClose={() => setIsPresetManagerOpen(false)}
+          onSave={handlePresetSave}
+          onDelete={handlePresetDelete}
+          onRefresh={handleRefreshPresets}
+        />
+
         {/* Global Permission Modal */}
         <PermissionModal />
 
-        {/* Top section: Library (left) + Preview (right) */}
-        <div style={styles.topSection}>
-          {/* Library Panel (left, 20%) */}
-          <div style={styles.libraryWrapper}>
-            <div style={styles.panelHeader}>
-              <span>Library</span>
-              <div style={styles.headerButtons}>
+
+        {/* Main Content Area */}
+        <div className="flex flex-1 h-screen">
+          {/* Left Panel - Media Browser */}
+          <div className="w-80 bg-dark-800 border-r border-dark-700 flex flex-col">
+            <div className="px-4 py-3 bg-dark-700 border-b border-dark-700 text-xs font-bold uppercase text-dark-400 flex justify-between items-center">
+              <span>Media Browser</span>
+              <div className="flex gap-2 items-center">
                 <RecordingMenu
                   disabled={isRecording}
                   onScreenClick={handleRecordClick}
@@ -382,24 +598,25 @@ export const MainLayout: React.FC = () => {
             <Library />
           </div>
 
-          {/* Preview Panel (right, 80%) */}
-          <div style={styles.preview}>
-            <div style={styles.panelHeader}>Preview</div>
-            <div style={styles.previewContent}>
+          {/* Center Panel - Video Preview */}
+          <div className="flex-1 flex flex-col bg-black">
+            <div className="px-4 py-3 bg-dark-700 border-b border-dark-700 text-xs font-bold uppercase text-dark-400">Preview</div>
+            <div className="flex-1 relative bg-dark-950">
               <PreviewPlayer />
             </div>
           </div>
+
         </div>
 
-        {/* Bottom section: Timeline (40% height) */}
-        <div style={styles.timeline}>
-          <div style={styles.panelHeader}>
+        {/* Bottom Panel - Timeline */}
+        <div className="h-52 bg-dark-900 border-t border-dark-700 flex flex-col">
+          <div className="px-4 py-3 bg-dark-700 border-b border-dark-700 text-xs font-bold uppercase text-dark-400 flex justify-between items-center">
             <span>Timeline</span>
-            <button onClick={handleExportClick} style={styles.exportButton}>
+            <button onClick={handleExportClick} className="px-4 py-2 text-xs font-bold bg-blue-400 text-white border-0 rounded cursor-pointer transition-colors duration-200 hover:bg-blue-500 uppercase">
               Export
             </button>
           </div>
-          <div style={styles.timelineContent}>
+          <div className="flex-1 relative overflow-hidden">
             <Timeline />
           </div>
         </div>
@@ -409,74 +626,5 @@ export const MainLayout: React.FC = () => {
   );
 };
 
-const styles = {
-  container: {
-    display: 'flex',
-    flexDirection: 'column' as const,
-    height: '100vh',
-    backgroundColor: '#1a1a1a',
-    color: '#ffffff',
-  },
-  topSection: {
-    display: 'flex',
-    height: '60%',
-    borderBottom: '1px solid #333',
-  },
-  libraryWrapper: {
-    width: '20%',
-    borderRight: '1px solid #333',
-    display: 'flex',
-    flexDirection: 'column' as const,
-  },
-  preview: {
-    width: '80%',
-    display: 'flex',
-    flexDirection: 'column' as const,
-    backgroundColor: '#000',
-  },
-  previewContent: {
-    flex: 1,
-    display: 'flex',
-    position: 'relative' as const,
-    backgroundColor: '#101010',
-  },
-  timeline: {
-    height: '40%',
-    display: 'flex',
-    flexDirection: 'column' as const,
-  },
-  timelineContent: {
-    flex: 1,
-    position: 'relative' as const,
-    overflow: 'hidden',
-  },
-  panelHeader: {
-    padding: '12px 16px',
-    backgroundColor: '#252525',
-    borderBottom: '1px solid #333',
-    fontSize: '12px',
-    fontWeight: 'bold' as const,
-    textTransform: 'uppercase' as const,
-    color: '#999',
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  headerButtons: {
-    display: 'flex',
-    gap: '8px',
-    alignItems: 'center',
-  },
-  exportButton: {
-    padding: '8px 16px',
-    fontSize: '12px',
-    fontWeight: 'bold' as const,
-    backgroundColor: '#4a9eff',
-    color: '#ffffff',
-    border: 'none',
-    borderRadius: '4px',
-    cursor: 'pointer',
-    transition: 'background-color 0.2s',
-    textTransform: 'uppercase' as const,
-  },
-};
+// Styles removed - using Tailwind CSS instead
+

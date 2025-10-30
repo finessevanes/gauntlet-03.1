@@ -72,9 +72,8 @@ export const RecordingMenu: React.FC<RecordingMenuProps> = ({
         }}
         title="Recording options"
       >
-        <span style={{ fontSize: '16px', marginRight: '6px' }}>🎥</span>
+        <span style={{ fontSize: '14px' }}>⏺</span>
         Record
-        <span style={{ marginLeft: '6px', fontSize: '12px' }}>▼</span>
       </button>
 
       {isOpen && (
@@ -104,19 +103,22 @@ const styles = {
   button: {
     display: 'flex',
     alignItems: 'center',
-    padding: '8px 12px',
-    fontSize: '12px',
-    fontWeight: 'bold' as const,
-    backgroundColor: '#ff1744',
+    justifyContent: 'center',
+    gap: '6px',
+    padding: '8px 16px',
+    fontSize: '13px',
+    fontWeight: 500,
+    backgroundColor: '#ff3b30',
     color: '#ffffff',
     border: 'none',
-    borderRadius: '4px',
+    borderRadius: '6px',
     cursor: 'pointer',
-    transition: 'background-color 0.2s',
+    transition: 'all 0.2s ease',
     whiteSpace: 'nowrap' as const,
+    height: '32px',
   },
   buttonOpen: {
-    backgroundColor: '#e01040',
+    backgroundColor: '#ff1a1a',
   },
   buttonDisabled: {
     opacity: 0.5,

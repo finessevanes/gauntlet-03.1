@@ -8,8 +8,8 @@ export interface Clip {
   filePath: string;           // Absolute path to source video file
   filename: string;           // Display name (extracted from path)
   duration: number;           // Total duration in seconds
-  inPoint: number;            // Trim start point in seconds (default: 0)
-  outPoint: number;           // Trim end point in seconds (default: duration)
+  inPoint: number;            // Default trim start point in seconds (used when no override exists)
+  outPoint: number;           // Default trim end point in seconds (used when no override exists)
   importedAt: number;         // Timestamp when imported (ms since epoch)
 
   // Video metadata (from Story 2: Video Import)
@@ -33,11 +33,14 @@ export interface Clip {
 export interface TimelineClip {
   instanceId: string;         // Unique ID for this timeline instance (UUID)
   clipId: string;             // Reference to the library clip
+  inPoint: number;            // Instance-specific trim start point in seconds
+  outPoint: number;           // Instance-specific trim end point in seconds
+  startTime: number;          // Position on timeline in seconds
 }
 
 export interface Timeline {
-  clips: TimelineClip[];      // Array of timeline clip instances in sequence
-  duration: number;           // Total timeline duration (sum of trimmed clips)
+  clips: TimelineClip[];              // Array of timeline clip instances in sequence
+  duration: number;                   // Total timeline duration (sum of trimmed clips)
 }
 
 export interface Session {

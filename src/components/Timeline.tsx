@@ -36,7 +36,7 @@ export const Timeline: React.FC = () => {
   const [isDraggingOver, setIsDraggingOver] = useState(false);
   const [draggedClipId, setDraggedClipId] = useState<string | null>(null);
   const [dropTargetIndex, setDropTargetIndex] = useState<number | null>(null);
-  const [hoveredEdge, setHoveredEdge] = useState<{ clipId: string; edge: 'left' | 'right' } | null>(null);
+  const [hoveredEdge, setHoveredEdge] = useState<{ instanceId: string; edge: 'left' | 'right' } | null>(null);
 
   // Log selection changes
   const handleClipSelect = useCallback((clipId: string) => {
@@ -58,38 +58,31 @@ export const Timeline: React.FC = () => {
   // Trim functionality (Story 5)
   const pixelsPerSecond = getPixelsPerSecond(zoomLevel);
 
-  // Trim completion handler
-  const handleTrimComplete = useCallback(async (clipId: string, inPoint: number, outPoint: number) => {
-    console.log('[Timeline] Trim complete, calling IPC:', { clipId: clipId.substring(0, 8), inPoint, outPoint });
+  // Trim completion handler - updates timeline clip directly
+  const handleTrimComplete = useCallback(async (clipId: string, instanceId: string, inPoint: number, outPoint: number) => {
+    console.log('[Timeline] Trim complete, calling IPC:', { clipId: clipId.substring(0, 8), instanceId: instanceId.substring(0, 8), inPoint, outPoint });
 
     try {
-      const result = await window.electron.trim.trimClip(clipId, inPoint, outPoint);
+      const result = await window.electron.trim.trimClip(clipId, instanceId, inPoint, outPoint);
 
-      if (result.success && result.clip) {
-        // Update the clip in the session store
-        const updatedClips = clips.map(c => c.id === clipId ? result.clip! : c);
-        useSessionStore.setState({ clips: updatedClips });
+      if (result.success && result.timelineClip) {
+        // Find and update the timeline clip with new trim points
+        const updatedClips = timeline.clips.map(tc => 
+          tc.instanceId === instanceId ? result.timelineClip : tc
+        );
 
-        // Recalculate timeline duration
-        const newDuration = timeline.clips.reduce((total, tc) => {
-          const clip = updatedClips.find(c => c.id === tc.clipId);
-          return total + (clip ? (clip.outPoint - clip.inPoint) : 0);
+        // Recalculate timeline duration using updated trim points
+        const newDuration = updatedClips.reduce((total, tc) => {
+          return total + (tc.outPoint - tc.inPoint);
         }, 0);
 
-        updateTimeline({ clips: timeline.clips, duration: newDuration });
-
-        // Persist the updated session to disk (critical for persistence across app restarts)
-        const session = {
-          version: '1.0.0',
+        // Update timeline with new clips and duration
+        const updatedTimeline = {
           clips: updatedClips,
-          timeline: { clips: timeline.clips, duration: newDuration },
-          zoomLevel: zoomLevel,
-          playheadPosition: playheadPosition,
-          scrollPosition: scrollPosition,
-          lastModified: Date.now(),
+          duration: newDuration,
         };
 
-        await window.electron.timeline.saveSession(session);
+        updateTimeline(updatedTimeline);
 
         console.log('[Timeline] Trim applied successfully, new duration:', newDuration);
       } else {
@@ -98,37 +91,48 @@ export const Timeline: React.FC = () => {
     } catch (error) {
       console.error('[Timeline] Error trimming clip:', error);
     }
-  }, [clips, timeline.clips, updateTimeline, zoomLevel, playheadPosition, scrollPosition]);
+  }, [timeline, updateTimeline]);
 
   // Initialize trim drag hook
   const trimDrag = useTrimDrag(pixelsPerSecond, handleTrimComplete);
 
   // Handle edge hover change
-  const handleEdgeHoverChange = useCallback((clipId: string, edge: 'left' | 'right' | null) => {
+  const handleEdgeHoverChange = useCallback((instanceId: string, edge: 'left' | 'right' | null) => {
     if (edge === null) {
       setHoveredEdge(null);
     } else {
-      setHoveredEdge({ clipId, edge });
+      setHoveredEdge({ instanceId, edge });
     }
   }, []);
 
-  // Handle trim start
-  const handleTrimStart = useCallback((clipId: string, edge: 'left' | 'right', e: React.MouseEvent) => {
+  // Handle trim start - uses per-instance trim overrides
+  const handleTrimStart = useCallback((clipId: string, instanceId: string, edge: 'left' | 'right', e: React.MouseEvent) => {
     const clip = clips.find(c => c.id === clipId);
     if (!clip) return;
 
-    // Find the start time of this clip on the timeline
-    let startTime = 0;
-    for (const timelineClip of timeline.clips) {
-      const tcClip = clips.find(c => c.id === timelineClip.clipId);
-      if (tcClip) {
-        if (tcClip.id === clipId) break;
-        startTime += tcClip.outPoint - tcClip.inPoint;
-      }
-    }
+    // Find the timeline clip to get its trim points
+    const timelineClip = timeline.clips.find(tc => tc.instanceId === instanceId);
+    const effectiveClip = timelineClip
+      ? { ...clip, inPoint: timelineClip.inPoint, outPoint: timelineClip.outPoint }
+      : clip;
 
-    trimDrag.startDrag(clipId, edge, e, clip, startTime);
-  }, [clips, timeline.clips, trimDrag]);
+    console.log('[Timeline] Trim start:', {
+      clipId: clipId.substring(0, 8),
+      instanceId: instanceId.substring(0, 8),
+      edge,
+      effectiveInPoint: effectiveClip.inPoint,
+      effectiveOutPoint: effectiveClip.outPoint,
+    });
+
+    // Find the start time of this clip on the timeline
+    const currentTimelineClip = timeline.clips.find(tc => tc.instanceId === instanceId);
+    const startTime = currentTimelineClip?.startTime || 0;
+
+    console.log('[Timeline] Trim start time calculated:', { instanceId: instanceId.substring(0, 8), startTime });
+
+    // Pass the effective clip (with trim override applied) to startDrag
+    trimDrag.startDrag(clipId, instanceId, edge, e, effectiveClip, startTime);
+  }, [clips, timeline, trimDrag]);
 
   // Measure container width for auto-fit calculation
   useEffect(() => {
@@ -172,23 +176,6 @@ export const Timeline: React.FC = () => {
     }
   }, [timeline.clips, clips]);
 
-  // Calculate clip start times (cumulative durations)
-  const clipStartTimes = useCallback(() => {
-    const startTimes: Record<string, number> = {};
-    let cumulativeTime = 0;
-
-    for (const timelineClip of timeline.clips) {
-      const clip = clips.find((c) => c.id === timelineClip.clipId);
-      if (clip) {
-        startTimes[timelineClip.instanceId] = cumulativeTime;
-        cumulativeTime += clip.outPoint - clip.inPoint;
-      }
-    }
-
-    return startTimes;
-  }, [timeline.clips, clips]);
-
-  const startTimes = clipStartTimes();
 
   // Handle drag over (Library clips being dragged)
   const handleDragOver = (e: React.DragEvent) => {
@@ -351,7 +338,7 @@ export const Timeline: React.FC = () => {
       const result = await window.electron.timeline.reorderClip(instanceId, newPosition);
 
       if (result.success && result.updatedTimeline) {
-        updateTimeline({ clips: result.updatedTimeline, duration: timeline.duration });
+        updateTimeline({ clips: result.updatedTimeline, duration: result.duration || timeline.duration });
         console.log('[Timeline] Clip reordered successfully, timeline now:',
           result.updatedTimeline.map((tc, i) => `${i}:${clips.find(c => c.id === tc.clipId)?.filename.substring(0, 10)}`));
       } else {
@@ -519,9 +506,6 @@ export const Timeline: React.FC = () => {
         timelineDuration={timeline.duration}
         zoomLevel={zoomLevel}
         onZoomChange={handleZoomChange}
-        isPlaying={isPlaying && previewSource === 'timeline'}
-        canPlay={canPlayTimeline}
-        onTogglePlay={handleTogglePlay}
       />
 
       {/* Timeline Track */}
@@ -563,6 +547,15 @@ export const Timeline: React.FC = () => {
               padding={TIMELINE_PADDING}
             />
 
+            {/* Track Labels */}
+            <div style={styles.trackLabels}>
+              <div style={styles.trackLabel}>V1</div>
+              <div style={styles.trackLabel}>A2</div>
+              <div style={styles.trackLabel}>A1</div>
+              <div style={styles.trackLabel}>TXT</div>
+              <div style={styles.trackLabel}>AO</div>
+            </div>
+
             {/* Drop Indicator - Render once at the calculated position */}
             {dropTargetIndex !== null && (
               <div
@@ -576,17 +569,12 @@ export const Timeline: React.FC = () => {
                     } else if (dropTargetIndex >= timeline.clips.length) {
                       // Insert at end
                       const lastTimelineClip = timeline.clips[timeline.clips.length - 1];
-                      const lastClip = clips.find(c => c.id === lastTimelineClip.clipId);
-                      if (lastClip) {
-                        const lastClipStart = startTimes[lastTimelineClip.instanceId] || 0;
-                        const lastClipDuration = lastClip.outPoint - lastClip.inPoint;
-                        return `${TIMELINE_PADDING + (lastClipStart + lastClipDuration) * pixelsPerSecond}px`;
-                      }
-                      return `${TIMELINE_PADDING}px`;
+                      const lastClipEnd = lastTimelineClip.startTime + (lastTimelineClip.outPoint - lastTimelineClip.inPoint);
+                      return `${TIMELINE_PADDING + lastClipEnd * pixelsPerSecond}px`;
                     } else {
                       // Insert between clips - show at start of clip at dropTargetIndex
                       const targetTimelineClip = timeline.clips[dropTargetIndex];
-                      return `${TIMELINE_PADDING + (startTimes[targetTimelineClip.instanceId] || 0) * pixelsPerSecond}px`;
+                      return `${TIMELINE_PADDING + targetTimelineClip.startTime * pixelsPerSecond}px`;
                     }
                   })(),
                   top: '24px',
@@ -605,13 +593,22 @@ export const Timeline: React.FC = () => {
               const clip = clips.find((c) => c.id === timelineClip.clipId);
               if (!clip) return null;
 
-              // Check if this clip is being trimmed and overlaps with any other clip
-              const isBeingTrimmed = trimDrag.dragging !== null && trimDrag.dragging.clipId === clip.id;
+              // Use timeline clip's trim points directly
+              const effectiveClip = {
+                ...clip,
+                inPoint: timelineClip.inPoint,
+                outPoint: timelineClip.outPoint,
+              };
+
+              const isClipSelected = selectedClipId === timelineClip.instanceId && selectedClipSource === 'timeline';
+
+              // Check if this clip instance is being trimmed and overlaps with any other clip
+              const isBeingTrimmed = trimDrag.dragging !== null && trimDrag.dragging.instanceId === timelineClip.instanceId;
               let isTrimmedClipOverlapping = false;
 
               if (isBeingTrimmed && trimDrag.draggedInPoint !== null && trimDrag.draggedOutPoint !== null) {
                 // Calculate the current dragged clip's range on the timeline
-                const draggedClipStart = startTimes[timelineClip.instanceId] || 0;
+                const draggedClipStart = timelineClip.startTime;
                 const draggedClipEnd = draggedClipStart + (trimDrag.draggedOutPoint - trimDrag.draggedInPoint);
 
                 // Check if it overlaps with any other clip
@@ -622,8 +619,15 @@ export const Timeline: React.FC = () => {
                   const otherClip = clips.find((c) => c.id === otherTimelineClip.clipId);
                   if (!otherClip) continue;
 
-                  const otherClipStart = startTimes[otherTimelineClip.instanceId] || 0;
-                  const otherClipEnd = otherClipStart + (otherClip.outPoint - otherClip.inPoint);
+                  // Use other timeline clip's trim points directly
+                  const effectiveOtherClip = {
+                    ...otherClip,
+                    inPoint: otherTimelineClip.inPoint,
+                    outPoint: otherTimelineClip.outPoint,
+                  };
+
+                  const otherClipStart = otherTimelineClip.startTime;
+                  const otherClipEnd = otherClipStart + (effectiveOtherClip.outPoint - effectiveOtherClip.inPoint);
 
                   // Check for overlap: clip1.start < clip2.end AND clip1.end > clip2.start
                   if (draggedClipStart < otherClipEnd && draggedClipEnd > otherClipStart) {
@@ -636,16 +640,16 @@ export const Timeline: React.FC = () => {
               return (
                 <TimelineClip
                   key={timelineClip.instanceId}
-                  clip={clip}
+                  clip={effectiveClip}
                   instanceId={timelineClip.instanceId}
                   index={index}
                   zoomLevel={zoomLevel}
-                  startTime={startTimes[timelineClip.instanceId] || 0}
+                  startTime={timelineClip.startTime}
                   padding={TIMELINE_PADDING}
                   onReorder={handleReorder}
                   onDelete={handleDelete}
                   onInsertLibraryClip={handleInsertLibraryClip}
-                  isSelected={selectedClipId === timelineClip.instanceId && selectedClipSource === 'timeline'}
+                  isSelected={isClipSelected}
                   onSelect={handleClipSelect}
                   isBroken={brokenFiles.has(timelineClip.instanceId)}
                   isDragging={draggedClipId === timelineClip.instanceId}
@@ -656,9 +660,9 @@ export const Timeline: React.FC = () => {
                   hoveredEdge={hoveredEdge}
                   onEdgeHoverChange={handleEdgeHoverChange}
                   onTrimStart={handleTrimStart}
-                  isTrimming={trimDrag.dragging !== null && trimDrag.dragging.clipId === clip.id}
-                  draggedInPoint={trimDrag.dragging?.clipId === clip.id ? trimDrag.draggedInPoint : null}
-                  draggedOutPoint={trimDrag.dragging?.clipId === clip.id ? trimDrag.draggedOutPoint : null}
+                  isTrimming={trimDrag.dragging !== null && trimDrag.dragging.instanceId === timelineClip.instanceId}
+                  draggedInPoint={trimDrag.dragging?.instanceId === timelineClip.instanceId ? trimDrag.draggedInPoint : null}
+                  draggedOutPoint={trimDrag.dragging?.instanceId === timelineClip.instanceId ? trimDrag.draggedOutPoint : null}
                   isTrimmedClipOverlapping={isTrimmedClipOverlapping}
                 />
               );
@@ -717,7 +721,7 @@ const styles = {
   },
   track: {
     position: 'relative' as const,
-    height: '120px',
+    height: '200px',
     minWidth: '100%',
     paddingLeft: '20px', // Add padding to make left edge easier to access
     paddingRight: '20px', // Add padding for symmetry
@@ -758,5 +762,27 @@ const styles = {
     fontSize: '16px',
     color: '#4a9eff',
     fontWeight: 'bold' as const,
+  },
+  trackLabels: {
+    position: 'absolute' as const,
+    left: '0',
+    top: '24px',
+    width: '60px',
+    height: '100%',
+    backgroundColor: '#252525',
+    borderRight: '1px solid #333',
+    display: 'flex',
+    flexDirection: 'column' as const,
+  },
+  trackLabel: {
+    height: '32px',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    fontSize: '12px',
+    fontWeight: 'bold' as const,
+    color: '#999',
+    borderBottom: '1px solid #333',
+    backgroundColor: '#1e1e1e',
   },
 };

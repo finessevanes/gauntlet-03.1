@@ -24,6 +24,7 @@ export const Library: React.FC = () => {
   const [isCheckingFiles, setIsCheckingFiles] = useState(false);
   const [showClearConfirm, setShowClearConfirm] = useState(false);
 
+
   // Check file existence on mount, when clips change, and periodically
   useEffect(() => {
     if (clips.length === 0) {
@@ -134,20 +135,20 @@ export const Library: React.FC = () => {
   // Show empty state if no clips
   if (clips.length === 0) {
     return (
-      <div style={styles.container}>
+      <div className="w-full h-full bg-dark-800 p-4 overflow-y-auto overflow-x-hidden relative flex flex-col">
         <EmptyState type="library" />
       </div>
     );
   }
 
   return (
-    <div style={styles.container}>
+    <div className="w-full h-full bg-dark-800 p-4 overflow-y-auto overflow-x-hidden relative flex flex-col">
       {/* Library Header */}
-      <div style={styles.header}>
-        <h3 style={styles.headerTitle}>Library ({clips.length})</h3>
+      <div className="flex justify-between items-center mb-3 pb-2 border-b border-dark-700">
+        <h3 className="m-0 text-sm font-semibold text-dark-200">Library ({clips.length})</h3>
         <button
           onClick={() => setShowClearConfirm(true)}
-          style={styles.clearButton}
+          className="px-3 py-1.5 bg-red-600 text-white border-0 rounded text-xs font-medium cursor-pointer transition-colors duration-200 hover:bg-red-700"
           title="Clear all clips from library"
         >
           Clear All
@@ -156,21 +157,21 @@ export const Library: React.FC = () => {
 
       {/* Clear Confirmation Dialog */}
       {showClearConfirm && (
-        <div style={styles.confirmDialog}>
-          <div style={styles.confirmContent}>
-            <p style={styles.confirmText}>
+        <div className="fixed top-0 left-0 right-0 bottom-0 bg-black bg-opacity-70 flex items-center justify-center z-50">
+          <div className="bg-dark-800 p-6 rounded-lg border border-dark-700 max-w-sm shadow-2xl">
+            <p className="m-0 mb-4 text-sm text-dark-200 leading-relaxed">
               Are you sure you want to remove all {clips.length} clip(s) from the library?
             </p>
-            <div style={styles.confirmButtons}>
+            <div className="flex gap-3 justify-end">
               <button
                 onClick={handleClearLibrary}
-                style={styles.confirmYesButton}
+                className="px-4 py-2 bg-red-600 text-white border-0 rounded text-xs font-medium cursor-pointer transition-colors duration-200 hover:bg-red-700"
               >
                 Yes, Clear All
               </button>
               <button
                 onClick={() => setShowClearConfirm(false)}
-                style={styles.confirmNoButton}
+                className="px-4 py-2 bg-dark-700 text-dark-200 border-0 rounded text-xs font-medium cursor-pointer transition-colors duration-200 hover:bg-dark-600"
               >
                 Cancel
               </button>
@@ -179,7 +180,7 @@ export const Library: React.FC = () => {
         </div>
       )}
 
-      <div style={styles.clipGrid}>
+      <div className="grid grid-cols-2 gap-x-3 flex-1 p-4 items-start">
         {clips.map((clip) => (
           <ClipCard
             key={clip.id}
@@ -196,7 +197,7 @@ export const Library: React.FC = () => {
 
       {/* Loading indicator while checking files */}
       {isCheckingFiles && clips.length > 0 && (
-        <div style={styles.checkingIndicator}>
+        <div className="absolute bottom-3 left-1/2 -translate-x-1/2 bg-black bg-opacity-90 text-blue-400 text-xs px-3 py-1.5 rounded border border-blue-400">
           Validating files...
         </div>
       )}
@@ -204,115 +205,4 @@ export const Library: React.FC = () => {
   );
 };
 
-const styles = {
-  container: {
-    width: '100%',
-    height: '100%',
-    backgroundColor: '#1a1a1a',
-    padding: '12px',
-    overflowY: 'auto' as const,
-    overflowX: 'hidden' as const,
-    position: 'relative' as const,
-    display: 'flex',
-    flexDirection: 'column' as const,
-  },
-  header: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: '12px',
-    paddingBottom: '8px',
-    borderBottom: '1px solid #333',
-  },
-  headerTitle: {
-    margin: 0,
-    fontSize: '14px',
-    fontWeight: 600,
-    color: '#e0e0e0',
-  },
-  clearButton: {
-    padding: '6px 12px',
-    backgroundColor: '#d32f2f',
-    color: '#fff',
-    border: 'none',
-    borderRadius: '4px',
-    fontSize: '12px',
-    fontWeight: 500,
-    cursor: 'pointer',
-    transition: 'background-color 0.2s',
-    ':hover': {
-      backgroundColor: '#b71c1c',
-    },
-  },
-  clipGrid: {
-    display: 'flex',
-    flexDirection: 'column' as const,
-    gap: '12px',
-    flex: 1,
-  },
-  confirmDialog: {
-    position: 'fixed' as const,
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: 'rgba(0, 0, 0, 0.7)',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    zIndex: 1000,
-  },
-  confirmContent: {
-    backgroundColor: '#2a2a2a',
-    padding: '24px',
-    borderRadius: '8px',
-    border: '1px solid #444',
-    maxWidth: '400px',
-    boxShadow: '0 8px 32px rgba(0, 0, 0, 0.8)',
-  },
-  confirmText: {
-    margin: '0 0 16px 0',
-    fontSize: '14px',
-    color: '#e0e0e0',
-    lineHeight: '1.5',
-  },
-  confirmButtons: {
-    display: 'flex',
-    gap: '12px',
-    justifyContent: 'flex-end',
-  },
-  confirmYesButton: {
-    padding: '8px 16px',
-    backgroundColor: '#d32f2f',
-    color: '#fff',
-    border: 'none',
-    borderRadius: '4px',
-    fontSize: '12px',
-    fontWeight: 500,
-    cursor: 'pointer',
-    transition: 'background-color 0.2s',
-  },
-  confirmNoButton: {
-    padding: '8px 16px',
-    backgroundColor: '#444',
-    color: '#e0e0e0',
-    border: 'none',
-    borderRadius: '4px',
-    fontSize: '12px',
-    fontWeight: 500,
-    cursor: 'pointer',
-    transition: 'background-color 0.2s',
-  },
-  checkingIndicator: {
-    position: 'absolute' as const,
-    bottom: '12px',
-    left: '50%',
-    transform: 'translateX(-50%)',
-    backgroundColor: 'rgba(0, 0, 0, 0.9)',
-    color: '#4a9eff',
-    fontSize: '11px',
-    padding: '6px 12px',
-    borderRadius: '4px',
-    border: '1px solid #4a9eff',
-  },
-};
+// Styles removed - using Tailwind CSS instead

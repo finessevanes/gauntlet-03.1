@@ -126,6 +126,9 @@ export function registerTimelineHandlers(): void {
       const timelineClip: TimelineClip = {
         instanceId: randomUUID(),
         clipId: clipId,
+        inPoint: clip.inPoint,
+        outPoint: clip.outPoint,
+        startTime: 0, // Will be calculated based on position
       };
 
       // Determine insertion position (default: end of timeline)
@@ -142,13 +145,16 @@ export function registerTimelineHandlers(): void {
       // Insert timeline clip instance into timeline
       session.timeline.clips.splice(insertPosition, 0, timelineClip);
 
-      // Recalculate timeline duration
+      // Calculate start times for all timeline clips
+      let currentTime = 0;
+      session.timeline.clips.forEach(tc => {
+        tc.startTime = currentTime;
+        currentTime += (tc.outPoint - tc.inPoint);
+      });
+
+      // Recalculate timeline duration using timeline clip trim points
       session.timeline.duration = session.timeline.clips.reduce((total, timelineClip) => {
-        const c = session.clips.find((clip) => clip.id === timelineClip.clipId);
-        if (c) {
-          return total + (c.outPoint - c.inPoint);
-        }
-        return total;
+        return total + (timelineClip.outPoint - timelineClip.inPoint);
       }, 0);
 
       // Save session
@@ -225,6 +231,18 @@ export function registerTimelineHandlers(): void {
       // Insert at new position
       session.timeline.clips.splice(newPosition, 0, timelineClip);
 
+      // Calculate start times for all timeline clips
+      let currentTime = 0;
+      session.timeline.clips.forEach(tc => {
+        tc.startTime = currentTime;
+        currentTime += (tc.outPoint - tc.inPoint);
+      });
+
+      // Recalculate timeline duration using timeline clip trim points
+      session.timeline.duration = session.timeline.clips.reduce((total, timelineClip) => {
+        return total + (timelineClip.outPoint - timelineClip.inPoint);
+      }, 0);
+
       // Save session
       const saved = persistSession(session);
 
@@ -245,6 +263,7 @@ export function registerTimelineHandlers(): void {
       return {
         success: true,
         updatedTimeline: session.timeline.clips,
+        duration: session.timeline.duration,
       };
 
     } catch (error) {
@@ -284,13 +303,16 @@ export function registerTimelineHandlers(): void {
       // Remove timeline clip instance from timeline
       session.timeline.clips.splice(position, 1);
 
-      // Recalculate timeline duration
+      // Calculate start times for all timeline clips
+      let currentTime = 0;
+      session.timeline.clips.forEach(tc => {
+        tc.startTime = currentTime;
+        currentTime += (tc.outPoint - tc.inPoint);
+      });
+
+      // Recalculate timeline duration using timeline clip trim points
       session.timeline.duration = session.timeline.clips.reduce((total, timelineClip) => {
-        const c = session.clips.find((clip) => clip.id === timelineClip.clipId);
-        if (c) {
-          return total + (c.outPoint - c.inPoint);
-        }
-        return total;
+        return total + (timelineClip.outPoint - timelineClip.inPoint);
       }, 0);
 
       // If playhead is beyond new duration, reset to 0

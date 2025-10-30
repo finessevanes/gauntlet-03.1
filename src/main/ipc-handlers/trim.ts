@@ -11,9 +11,9 @@ import { Session } from '../../types/session';
  * Validate and apply trim points to a clip
  */
 export function registerTrimHandlers() {
-  // trim_clip: Validate and apply trim points
-  ipcMain.handle('trim_clip', async (event, { clipId, inPoint, outPoint }: { clipId: string; inPoint: number; outPoint: number }) => {
-    console.log('[Trim IPC] trim_clip called:', { clipId: clipId.substring(0, 8), inPoint, outPoint });
+  // trim_clip: Validate and apply trim points (per-instance override)
+  ipcMain.handle('trim_clip', async (event, { clipId, instanceId, inPoint, outPoint }: { clipId: string; instanceId: string; inPoint: number; outPoint: number }) => {
+    console.log('[Trim IPC] trim_clip called:', { clipId: clipId.substring(0, 8), instanceId: instanceId.substring(0, 8), inPoint, outPoint });
 
     try {
       const session = loadSession();
@@ -34,6 +34,16 @@ export function registerTrimHandlers() {
         return {
           success: false,
           error: `Clip not found: ${clipId}`,
+        };
+      }
+
+      // Find timeline clip to verify instanceId exists
+      const timelineClip = session.timeline.clips.find(tc => tc.instanceId === instanceId);
+      if (!timelineClip || timelineClip.clipId !== clipId) {
+        console.error('[Trim IPC] Timeline clip not found or clipId mismatch:', { instanceId, clipId });
+        return {
+          success: false,
+          error: `Timeline clip instance not found: ${instanceId}`,
         };
       }
 
@@ -66,16 +76,17 @@ export function registerTrimHandlers() {
         };
       }
 
-      // Update clip trim points
-      clip.inPoint = correctedInPoint;
-      clip.outPoint = correctedOutPoint;
+      // Update the timeline clip directly with new trim points
+      timelineClip.inPoint = correctedInPoint;
+      timelineClip.outPoint = correctedOutPoint;
 
-      console.log('[Trim IPC] Clip trimmed successfully:', {
+      console.log('[Trim IPC] Clip instance trimmed successfully:', {
         clipId: clipId.substring(0, 8),
+        instanceId: instanceId.substring(0, 8),
         filename: clip.filename,
-        inPoint: clip.inPoint,
-        outPoint: clip.outPoint,
-        trimmedDuration: clip.outPoint - clip.inPoint,
+        inPoint: correctedInPoint,
+        outPoint: correctedOutPoint,
+        trimmedDuration: correctedOutPoint - correctedInPoint,
       });
 
       // Save session state
@@ -91,6 +102,7 @@ export function registerTrimHandlers() {
       return {
         success: true,
         clip,
+        timelineClip,
       };
     } catch (error) {
       console.error('[Trim IPC] Error trimming clip:', error);
@@ -101,9 +113,9 @@ export function registerTrimHandlers() {
     }
   });
 
-  // reset_trim: Reset clip to full duration
-  ipcMain.handle('reset_trim', async (event, { clipId }: { clipId: string }) => {
-    console.log('[Trim IPC] reset_trim called:', clipId.substring(0, 8));
+  // reset_trim: Reset instance trim to full duration
+  ipcMain.handle('reset_trim', async (event, { clipId, instanceId }: { clipId: string; instanceId: string }) => {
+    console.log('[Trim IPC] reset_trim called:', { clipId: clipId.substring(0, 8), instanceId: instanceId.substring(0, 8) });
 
     try {
       const session = loadSession();
@@ -127,12 +139,23 @@ export function registerTrimHandlers() {
         };
       }
 
-      // Reset to full duration
-      clip.inPoint = 0;
-      clip.outPoint = clip.duration;
+      // Find timeline clip to verify instanceId exists
+      const timelineClip = session.timeline.clips.find(tc => tc.instanceId === instanceId);
+      if (!timelineClip || timelineClip.clipId !== clipId) {
+        console.error('[Trim IPC] Timeline clip not found or clipId mismatch:', { instanceId, clipId });
+        return {
+          success: false,
+          error: `Timeline clip instance not found: ${instanceId}`,
+        };
+      }
 
-      console.log('[Trim IPC] Clip trim reset:', {
+      // Reset timeline clip to use clip's default trim points
+      timelineClip.inPoint = clip.inPoint;
+      timelineClip.outPoint = clip.outPoint;
+
+      console.log('[Trim IPC] Clip instance trim reset:', {
         clipId: clipId.substring(0, 8),
+        instanceId: instanceId.substring(0, 8),
         filename: clip.filename,
         duration: clip.duration,
       });

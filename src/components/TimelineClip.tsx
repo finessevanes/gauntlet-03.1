@@ -28,9 +28,9 @@ interface TimelineClipProps {
   draggedClipIndex: number | null; // Index of the clip being dragged (for reorder calculation)
 
   // Trim props (Story 5)
-  hoveredEdge: { clipId: string; edge: 'left' | 'right' } | null;
-  onEdgeHoverChange: (clipId: string, edge: 'left' | 'right' | null) => void;
-  onTrimStart: (clipId: string, edge: 'left' | 'right', e: React.MouseEvent) => void;
+  hoveredEdge: { instanceId: string; edge: 'left' | 'right' } | null;
+  onEdgeHoverChange: (instanceId: string, edge: 'left' | 'right' | null) => void;
+  onTrimStart: (clipId: string, instanceId: string, edge: 'left' | 'right', e: React.MouseEvent) => void;
   isTrimming: boolean;            // Is any clip currently being trimmed
   draggedInPoint: number | null;  // Current inPoint during drag (optimistic UI)
   draggedOutPoint: number | null; // Current outPoint during drag (optimistic UI)
@@ -106,9 +106,9 @@ export const TimelineClip: React.FC<TimelineClipProps> = ({
     });
   }
 
-  // Check if this clip's edge is being hovered
-  const isLeftEdgeHovered = hoveredEdge?.clipId === clip.id && hoveredEdge.edge === 'left';
-  const isRightEdgeHovered = hoveredEdge?.clipId === clip.id && hoveredEdge.edge === 'right';
+  // Check if this clip's edge is being hovered (use instanceId, not clipId, to support multiple instances)
+  const isLeftEdgeHovered = hoveredEdge?.instanceId === instanceId && hoveredEdge.edge === 'left';
+  const isRightEdgeHovered = hoveredEdge?.instanceId === instanceId && hoveredEdge.edge === 'right';
   const isAnyEdgeHovered = isLeftEdgeHovered || isRightEdgeHovered;
 
   // Handle click - select the clip (same as Library)
@@ -147,26 +147,26 @@ export const TimelineClip: React.FC<TimelineClipProps> = ({
 
     // Check left edge
     if (relativeX <= EDGE_THRESHOLD) {
-      onEdgeHoverChange(clip.id, 'left');
+      onEdgeHoverChange(instanceId, 'left');
       return;
     }
 
     // Check right edge
     if (relativeX >= rect.width - EDGE_THRESHOLD) {
-      onEdgeHoverChange(clip.id, 'right');
+      onEdgeHoverChange(instanceId, 'right');
       return;
     }
 
     // Not hovering over edge (only clear if not currently trimming this clip)
     if (!isTrimming) {
-      onEdgeHoverChange(clip.id, null);
+      onEdgeHoverChange(instanceId, null);
     }
   };
 
   // Handle mouse leave (clear edge hover, unless currently trimming)
   const handleMouseLeave = () => {
     if (!isTrimming) {
-      onEdgeHoverChange(clip.id, null);
+      onEdgeHoverChange(instanceId, null);
     }
   };
 
@@ -176,7 +176,7 @@ export const TimelineClip: React.FC<TimelineClipProps> = ({
     if (isAnyEdgeHovered && hoveredEdge) {
       e.stopPropagation(); // Prevent regular drag from starting
       console.log('[TimelineClip] Starting trim drag:', { edge: hoveredEdge.edge, clipId: clip.id.substring(0, 8) });
-      onTrimStart(clip.id, hoveredEdge.edge, e);
+      onTrimStart(clip.id, instanceId, hoveredEdge.edge, e);
     }
   };
 
@@ -387,10 +387,9 @@ export const TimelineClip: React.FC<TimelineClipProps> = ({
           ...styles.clip,
           left: `${xPosition}px`,
           width: `${clipWidth}px`,
-          borderColor: isSelected ? '#4a9eff' : '#555',
+          border: `${isSelected ? '3px' : '2px'} solid ${isSelected ? '#4a9eff' : '#555'}`,
           backgroundColor: isAnyEdgeHovered ? 'rgba(58, 58, 58, 0.8)' : isSelected ? '#4a5a6a' : '#3a3a3a',
           backgroundImage: isAnyEdgeHovered ? 'linear-gradient(90deg, rgba(0, 255, 0, 0.15) 0%, rgba(0, 255, 0, 0.1) 50%, rgba(0, 255, 0, 0.15) 100%)' : 'none',
-          borderWidth: isSelected ? '3px' : '2px',
           opacity: isBroken ? 0.5 : 1,
           pointerEvents: 'auto',
           transition: 'border-color 0.2s, background-color 0.2s, border-width 0.1s',
