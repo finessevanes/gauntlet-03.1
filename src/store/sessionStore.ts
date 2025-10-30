@@ -23,10 +23,6 @@ interface SessionState {
   previewSource: 'timeline' | 'library';
   previewClipId: string | null;
 
-  // S13: Snap-to-Grid state (Story 13: Split & Advanced Trim)
-  snapEnabled: boolean;
-  snapMode: 'frame' | '500ms' | '1s';
-
   // Actions
   setSession: (session: Session) => void;
   addClip: (clip: Clip) => void;
@@ -39,10 +35,8 @@ interface SessionState {
   setSelectedClip: (clipId: string | null, source: 'library' | 'timeline' | null) => void;
   setIsPlaying: (playing: boolean) => void;
   setPreviewSource: (source: 'timeline' | 'library', options?: { clipId?: string | null; resetPlayhead?: boolean }) => void;
-  // S13: Split and snap controls
+  // S13: Split control
   splitClipAtPlayhead: (clipId: string, instanceId: string, splitPoint: number) => Promise<boolean>;
-  setSnapEnabled: (enabled: boolean) => void;
-  setSnapMode: (mode: 'frame' | '500ms' | '1s') => void;
   resetSession: () => void;
   clearLibrary: () => void;
 }
@@ -62,9 +56,6 @@ const defaultState = {
   isPlaying: false,
   previewSource: 'timeline' as const,
   previewClipId: null,
-  // S13: Snap-to-Grid defaults
-  snapEnabled: true,
-  snapMode: 'frame' as const,
 };
 
 export const useSessionStore = create<SessionState>((set) => ({
@@ -388,9 +379,4 @@ export const useSessionStore = create<SessionState>((set) => ({
     });
   },
 
-  // S13: Toggle snap-to-grid on/off
-  setSnapEnabled: (enabled: boolean) => set({ snapEnabled: enabled }),
-
-  // S13: Set snap mode (frame-precise, 500ms, or 1s)
-  setSnapMode: (mode: 'frame' | '500ms' | '1s') => set({ snapMode: mode }),
 }));

@@ -66,19 +66,9 @@ export const Library: React.FC = () => {
   }, [clips]);
 
   const handleClipClick = (clipId: string) => {
-    console.log('[Library] Selected clip for preview', {
-      clipId,
-      previousSelection: selectedClipId,
-      previousSource: selectedClipSource,
-    });
     setSelectedClip(clipId, 'library');
     setIsPlaying(false);
     setPreviewSource('library', { clipId, resetPlayhead: true });
-    console.log('[Library] Preview source switched to library clip', {
-      clipId,
-      resetPlayhead: true,
-      message: 'Playhead reset to 0',
-    });
   };
 
   const handleClipDragStart = (e: React.DragEvent, clipId: string) => {
@@ -88,15 +78,11 @@ export const Library: React.FC = () => {
     // Set clip ID in dataTransfer for Timeline (Story 4) to receive
     e.dataTransfer.setData('clipId', clipId);
     e.dataTransfer.effectAllowed = 'copy';
-
-    // Story 4 (Timeline) will implement drop target logic
-    console.log('[Library] Dragging clip:', clipId);
   };
 
   const handleClipDragEnd = () => {
     // Clear active/selected state after drag ends (whether dropped or not)
     setSelectedClip(null, null);
-    console.log('[Library] Drag ended, clearing selection');
   };
 
   const handleClearLibrary = () => {
@@ -106,8 +92,6 @@ export const Library: React.FC = () => {
   };
 
   const handleClipDelete = async (clipId: string) => {
-    console.log('[Library] Deleting clip:', clipId);
-
     try {
       const result = await window.electron.library.removeClip(clipId);
 
@@ -122,13 +106,9 @@ export const Library: React.FC = () => {
 
         // Clear selection
         setSelectedClip(null, null);
-
-        console.log('[Library] Clip deleted successfully');
-      } else {
-        console.error('[Library] Failed to delete clip:', result.error);
       }
     } catch (error) {
-      console.error('[Library] Error deleting clip:', error);
+      // Handle error silently
     }
   };
 
