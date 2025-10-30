@@ -639,6 +639,19 @@ export const Timeline: React.FC = () => {
                 ? { ...clip, inPoint: trimOverride.inPoint, outPoint: trimOverride.outPoint }
                 : clip;
 
+              // Debug: Log selection state for each clip
+              const isClipSelected = selectedClipId === timelineClip.instanceId && selectedClipSource === 'timeline';
+              if (index < 2) {
+                console.log('[Timeline] Rendering clip:', {
+                  index,
+                  clipId: clip.id.substring(0, 8),
+                  instanceId: timelineClip.instanceId.substring(0, 8),
+                  selectedClipId: selectedClipId?.substring(0, 8),
+                  selectedClipSource,
+                  isClipSelected,
+                });
+              }
+
               // Check if this clip instance is being trimmed and overlaps with any other clip
               const isBeingTrimmed = trimDrag.dragging !== null && trimDrag.dragging.instanceId === timelineClip.instanceId;
               let isTrimmedClipOverlapping = false;
@@ -685,7 +698,7 @@ export const Timeline: React.FC = () => {
                   onReorder={handleReorder}
                   onDelete={handleDelete}
                   onInsertLibraryClip={handleInsertLibraryClip}
-                  isSelected={selectedClipId === timelineClip.instanceId && selectedClipSource === 'timeline'}
+                  isSelected={isClipSelected}
                   onSelect={handleClipSelect}
                   isBroken={brokenFiles.has(timelineClip.instanceId)}
                   isDragging={draggedClipId === timelineClip.instanceId}
