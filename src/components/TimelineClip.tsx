@@ -30,7 +30,7 @@ interface TimelineClipProps {
   // Trim props (Story 5)
   hoveredEdge: { clipId: string; edge: 'left' | 'right' } | null;
   onEdgeHoverChange: (clipId: string, edge: 'left' | 'right' | null) => void;
-  onTrimStart: (clipId: string, edge: 'left' | 'right', e: React.MouseEvent) => void;
+  onTrimStart: (clipId: string, instanceId: string, edge: 'left' | 'right', e: React.MouseEvent) => void;
   isTrimming: boolean;            // Is any clip currently being trimmed
   draggedInPoint: number | null;  // Current inPoint during drag (optimistic UI)
   draggedOutPoint: number | null; // Current outPoint during drag (optimistic UI)
@@ -176,7 +176,7 @@ export const TimelineClip: React.FC<TimelineClipProps> = ({
     if (isAnyEdgeHovered && hoveredEdge) {
       e.stopPropagation(); // Prevent regular drag from starting
       console.log('[TimelineClip] Starting trim drag:', { edge: hoveredEdge.edge, clipId: clip.id.substring(0, 8) });
-      onTrimStart(clip.id, hoveredEdge.edge, e);
+      onTrimStart(clip.id, instanceId, hoveredEdge.edge, e);
     }
   };
 

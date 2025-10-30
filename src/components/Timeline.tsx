@@ -58,31 +58,45 @@ export const Timeline: React.FC = () => {
   // Trim functionality (Story 5)
   const pixelsPerSecond = getPixelsPerSecond(zoomLevel);
 
-  // Trim completion handler
-  const handleTrimComplete = useCallback(async (clipId: string, inPoint: number, outPoint: number) => {
-    console.log('[Timeline] Trim complete, calling IPC:', { clipId: clipId.substring(0, 8), inPoint, outPoint });
+  // Trim completion handler - uses per-instance trim overrides
+  const handleTrimComplete = useCallback(async (clipId: string, instanceId: string, inPoint: number, outPoint: number) => {
+    console.log('[Timeline] Trim complete, calling IPC:', { clipId: clipId.substring(0, 8), instanceId: instanceId.substring(0, 8), inPoint, outPoint });
 
     try {
-      const result = await window.electron.trim.trimClip(clipId, inPoint, outPoint);
+      const result = await window.electron.trim.trimClip(clipId, instanceId, inPoint, outPoint);
 
-      if (result.success && result.clip) {
-        // Update the clip in the session store
-        const updatedClips = clips.map(c => c.id === clipId ? result.clip! : c);
-        useSessionStore.setState({ clips: updatedClips });
+      if (result.success && result.override) {
+        // Get current trim overrides or initialize empty array
+        const currentOverrides = timeline.trimOverrides || [];
 
-        // Recalculate timeline duration
+        // Recalculate timeline duration using trim overrides
         const newDuration = timeline.clips.reduce((total, tc) => {
-          const clip = updatedClips.find(c => c.id === tc.clipId);
-          return total + (clip ? (clip.outPoint - clip.inPoint) : 0);
+          const clip = clips.find(c => c.id === tc.clipId);
+          if (!clip) return total;
+
+          // Get trim points: use override if exists, otherwise use clip defaults
+          const override = currentOverrides.find(o => o.instanceId === tc.instanceId);
+          const clipInPoint = override?.inPoint ?? clip.inPoint ?? 0;
+          const clipOutPoint = override?.outPoint ?? clip.outPoint ?? clip.duration;
+
+          return total + (clipOutPoint - clipInPoint);
         }, 0);
 
-        updateTimeline({ clips: timeline.clips, duration: newDuration });
+        // Update timeline with new trimOverrides
+        const updatedTimeline = {
+          ...timeline,
+          trimOverrides: currentOverrides.map(o => o.instanceId === instanceId ? result.override! : o)
+            .concat(currentOverrides.find(o => o.instanceId === instanceId) ? [] : [result.override!]),
+          duration: newDuration,
+        };
+
+        updateTimeline(updatedTimeline);
 
         // Persist the updated session to disk (critical for persistence across app restarts)
         const session = {
           version: '1.0.0',
-          clips: updatedClips,
-          timeline: { clips: timeline.clips, duration: newDuration },
+          clips: clips,
+          timeline: updatedTimeline,
           zoomLevel: zoomLevel,
           playheadPosition: playheadPosition,
           scrollPosition: scrollPosition,
@@ -98,7 +112,7 @@ export const Timeline: React.FC = () => {
     } catch (error) {
       console.error('[Timeline] Error trimming clip:', error);
     }
-  }, [clips, timeline.clips, updateTimeline, zoomLevel, playheadPosition, scrollPosition]);
+  }, [clips, timeline, updateTimeline, zoomLevel, playheadPosition, scrollPosition]);
 
   // Initialize trim drag hook
   const trimDrag = useTrimDrag(pixelsPerSecond, handleTrimComplete);
@@ -112,23 +126,31 @@ export const Timeline: React.FC = () => {
     }
   }, []);
 
-  // Handle trim start
-  const handleTrimStart = useCallback((clipId: string, edge: 'left' | 'right', e: React.MouseEvent) => {
+  // Handle trim start - uses per-instance trim overrides
+  const handleTrimStart = useCallback((clipId: string, instanceId: string, edge: 'left' | 'right', e: React.MouseEvent) => {
     const clip = clips.find(c => c.id === clipId);
     if (!clip) return;
 
-    // Find the start time of this clip on the timeline
+    const trimOverrides = timeline.trimOverrides || [];
+
+    // Find the start time of this clip on the timeline (considering trim overrides)
     let startTime = 0;
     for (const timelineClip of timeline.clips) {
       const tcClip = clips.find(c => c.id === timelineClip.clipId);
       if (tcClip) {
-        if (tcClip.id === clipId) break;
-        startTime += tcClip.outPoint - tcClip.inPoint;
+        if (timelineClip.instanceId === instanceId) break; // Stop at this instance
+
+        // Get effective trim points for this timeline instance
+        const override = trimOverrides.find(o => o.instanceId === timelineClip.instanceId);
+        const inPoint = override?.inPoint ?? tcClip.inPoint ?? 0;
+        const outPoint = override?.outPoint ?? tcClip.outPoint ?? tcClip.duration;
+
+        startTime += outPoint - inPoint;
       }
     }
 
-    trimDrag.startDrag(clipId, edge, e, clip, startTime);
-  }, [clips, timeline.clips, trimDrag]);
+    trimDrag.startDrag(clipId, instanceId, edge, e, clip, startTime);
+  }, [clips, timeline, trimDrag]);
 
   // Measure container width for auto-fit calculation
   useEffect(() => {
@@ -611,6 +633,12 @@ export const Timeline: React.FC = () => {
               const clip = clips.find((c) => c.id === timelineClip.clipId);
               if (!clip) return null;
 
+              // Apply trim override if it exists, otherwise use clip defaults
+              const trimOverride = timeline.trimOverrides?.find(o => o.instanceId === timelineClip.instanceId);
+              const effectiveClip = trimOverride
+                ? { ...clip, inPoint: trimOverride.inPoint, outPoint: trimOverride.outPoint }
+                : clip;
+
               // Check if this clip is being trimmed and overlaps with any other clip
               const isBeingTrimmed = trimDrag.dragging !== null && trimDrag.dragging.clipId === clip.id;
               let isTrimmedClipOverlapping = false;
@@ -628,8 +656,14 @@ export const Timeline: React.FC = () => {
                   const otherClip = clips.find((c) => c.id === otherTimelineClip.clipId);
                   if (!otherClip) continue;
 
+                  // Apply override to other clip too
+                  const otherTrimOverride = timeline.trimOverrides?.find(o => o.instanceId === otherTimelineClip.instanceId);
+                  const effectiveOtherClip = otherTrimOverride
+                    ? { ...otherClip, inPoint: otherTrimOverride.inPoint, outPoint: otherTrimOverride.outPoint }
+                    : otherClip;
+
                   const otherClipStart = startTimes[otherTimelineClip.instanceId] || 0;
-                  const otherClipEnd = otherClipStart + (otherClip.outPoint - otherClip.inPoint);
+                  const otherClipEnd = otherClipStart + (effectiveOtherClip.outPoint - effectiveOtherClip.inPoint);
 
                   // Check for overlap: clip1.start < clip2.end AND clip1.end > clip2.start
                   if (draggedClipStart < otherClipEnd && draggedClipEnd > otherClipStart) {
@@ -642,7 +676,7 @@ export const Timeline: React.FC = () => {
               return (
                 <TimelineClip
                   key={timelineClip.instanceId}
-                  clip={clip}
+                  clip={effectiveClip}
                   instanceId={timelineClip.instanceId}
                   index={index}
                   zoomLevel={zoomLevel}

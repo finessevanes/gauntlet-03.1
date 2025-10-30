@@ -107,7 +107,7 @@ export const ClipCard: React.FC<ClipCardProps> = ({
         className={`flex flex-col cursor-pointer transition-all duration-200 rounded-lg p-0 w-full min-w-0 ${
           isSelected ? 'outline-2 outline-blue-400 outline-offset-2' : ''
         } ${isBroken ? 'border-2 border-red-500 opacity-70 cursor-not-allowed' : ''} ${
-          isHovered && !isBroken ? 'scale-102 bg-white bg-opacity-5' : ''
+          isHovered && !isBroken ? 'scale-102' : ''
         }`}
         onClick={handleClick}
         onContextMenu={handleContextMenu}
