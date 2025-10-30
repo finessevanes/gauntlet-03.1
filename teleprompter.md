@@ -1,0 +1,3 @@
+**Teleprompter Feature Brief**
+
+A teleprompter displays text on-screen synchronized with video playback, allowing presenters to read lines while recording or presenting without looking away from the camera. Users can upload or paste scripts, and AI automatically optimizes text formatting, suggests pacing adjustments, and can even generate scripts from rough ideas or video content. The text scrolls at a configurable rate with real-time controls, and AI learns the user's preferred reading speed and style over time. This feature integrates seamlessly with the main timeline, allowing creators to record voiceovers or on-camera content while following AI-enhanced scripts.
