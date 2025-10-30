@@ -37,6 +37,20 @@ export const MainLayout: React.FC = () => {
   // Resizable panel state
   const [libraryWidth, setLibraryWidth] = useState(20); // percentage
   const [isDraggingDivider, setIsDraggingDivider] = useState(false);
+  const MIN_LIBRARY_WIDTH_PX = 300;
+
+  // Ensure library width respects minimum on mount
+  useEffect(() => {
+    const container = document.querySelector('[data-layout="main-container"]') as HTMLElement;
+    if (container) {
+      const containerWidth = container.getBoundingClientRect().width;
+      const minWidthPercent = (MIN_LIBRARY_WIDTH_PX / containerWidth) * 100;
+      if (libraryWidth < minWidthPercent) {
+        setLibraryWidth(minWidthPercent);
+        console.log(`[MainLayout] Enforcing minimum library width: ${minWidthPercent.toFixed(2)}%`);
+      }
+    }
+  }, []);
 
   // Webcam recording state (Story S10)
   const [isWebcamModalOpen, setIsWebcamModalOpen] = useState(false);
@@ -99,10 +113,12 @@ export const MainLayout: React.FC = () => {
       if (!container) return;
 
       const containerRect = container.getBoundingClientRect();
-      const newWidth = ((e.clientX - containerRect.left) / containerRect.width) * 100;
+      const containerWidth = containerRect.width;
+      const newWidth = ((e.clientX - containerRect.left) / containerWidth) * 100;
+      const minWidthPercent = (MIN_LIBRARY_WIDTH_PX / containerWidth) * 100;
 
-      // Constrain between 15% and 60%
-      if (newWidth >= 15 && newWidth <= 60) {
+      // Constrain between 300px minimum and 60% maximum
+      if (newWidth >= minWidthPercent && newWidth <= 60) {
         setLibraryWidth(newWidth);
       }
     };

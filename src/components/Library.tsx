@@ -24,6 +24,7 @@ export const Library: React.FC = () => {
   const [isCheckingFiles, setIsCheckingFiles] = useState(false);
   const [showClearConfirm, setShowClearConfirm] = useState(false);
 
+
   // Check file existence on mount, when clips change, and periodically
   useEffect(() => {
     if (clips.length === 0) {
