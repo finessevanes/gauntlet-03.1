@@ -104,13 +104,11 @@ export const ClipCard: React.FC<ClipCardProps> = ({
   return (
     <>
       <div
-        style={{
-          ...styles.card,
-          ...(isSelected && styles.cardSelected),
-          ...(isBroken && styles.cardBroken),
-          ...(isHovered && !isBroken && styles.cardHover),
-          cursor: isBroken ? 'not-allowed' : 'pointer',
-        }}
+        className={`flex flex-col cursor-pointer transition-all duration-200 rounded-lg p-0 w-full min-w-0 ${
+          isSelected ? 'outline-2 outline-blue-400 outline-offset-2' : ''
+        } ${isBroken ? 'border-2 border-red-500 opacity-70 cursor-not-allowed' : ''} ${
+          isHovered && !isBroken ? 'scale-102 bg-white bg-opacity-5' : ''
+        }`}
         onClick={handleClick}
         onContextMenu={handleContextMenu}
         onMouseEnter={() => setIsHovered(true)}
@@ -120,7 +118,7 @@ export const ClipCard: React.FC<ClipCardProps> = ({
         onDragEnd={handleDragEnd}
       >
       {/* Thumbnail with duration overlay */}
-      <div style={styles.thumbnailContainer}>
+      <div className="relative w-full h-[90px] rounded-md overflow-hidden bg-dark-700 mb-1.5 flex-shrink-0">
         {/* Broken file icon overlay */}
         {isBroken && (
           <BrokenFileIcon tooltip={`Source file not found: ${clip.filePath}`} />
@@ -130,7 +128,7 @@ export const ClipCard: React.FC<ClipCardProps> = ({
           <img
             src={clip.thumbnail}
             alt={clip.filename}
-            style={styles.thumbnail}
+            className="w-full h-full object-cover"
             onError={(e) => {
               // Fallback for broken thumbnails
               const target = e.target as HTMLImageElement;
@@ -138,14 +136,14 @@ export const ClipCard: React.FC<ClipCardProps> = ({
             }}
           />
         ) : (
-          <div style={styles.placeholderThumbnail}>🎥</div>
+          <div className="w-full h-full flex items-center justify-center text-2xl">🎥</div>
         )}
         {/* Duration badge overlay */}
-        <div style={styles.durationBadge}>{formatDuration(clip.duration)}</div>
+        <div className="absolute bottom-1 right-1 bg-black bg-opacity-75 text-white text-xs font-bold px-1.5 py-0.5 rounded">{formatDuration(clip.duration)}</div>
       </div>
 
       {/* Filename */}
-      <div style={styles.filename} title={clip.filename}>
+      <div className="text-xs text-white overflow-hidden text-ellipsis whitespace-nowrap leading-tight" title={clip.filename}>
         {clip.filename}
       </div>
       </div>
@@ -153,15 +151,15 @@ export const ClipCard: React.FC<ClipCardProps> = ({
       {/* Context Menu */}
       {showContextMenu && (
         <div
+          className="fixed bg-dark-800 border border-dark-600 rounded shadow-lg z-50"
           style={{
-            ...styles.contextMenu,
             left: `${contextMenuPosition.x}px`,
             top: `${contextMenuPosition.y}px`,
           }}
         >
           <button
             onClick={handleDeleteClick}
-            style={styles.contextMenuItem}
+            className="block w-full px-4 py-2 bg-transparent border-0 text-dark-200 text-xs text-left cursor-pointer rounded-sm transition-colors duration-200 hover:bg-dark-700"
           >
             Delete
           </button>
@@ -171,91 +169,4 @@ export const ClipCard: React.FC<ClipCardProps> = ({
   );
 };
 
-const styles = {
-  card: {
-    display: 'flex',
-    flexDirection: 'column' as const,
-    cursor: 'pointer',
-    transition: 'all 0.2s ease',
-    borderRadius: '8px',
-    padding: '0',
-    width: '100%',
-    minWidth: 0, // Prevents flex items from overflowing
-  },
-  cardHover: {
-    transform: 'scale(1.02)',
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
-  },
-  cardSelected: {
-    outline: '2px solid #4a9eff',
-    outlineOffset: '2px',
-  },
-  cardBroken: {
-    border: '2px solid #ff4444',
-    opacity: 0.7,
-  },
-  thumbnailContainer: {
-    position: 'relative' as const,
-    width: '100%',
-    height: '90px', // Reduced height for more landscape ratio
-    borderRadius: '6px',
-    overflow: 'hidden',
-    backgroundColor: '#333',
-    marginBottom: '6px',
-    flexShrink: 0, // Prevents container from shrinking
-  },
-  thumbnail: {
-    width: '100%',
-    height: '100%',
-    objectFit: 'cover' as const,
-  },
-  placeholderThumbnail: {
-    width: '100%',
-    height: '100%',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    fontSize: '32px',
-  },
-  durationBadge: {
-    position: 'absolute' as const,
-    bottom: '4px',
-    right: '4px',
-    backgroundColor: 'rgba(0, 0, 0, 0.75)',
-    color: '#ffffff',
-    fontSize: '10px',
-    fontWeight: 'bold' as const,
-    padding: '2px 6px',
-    borderRadius: '3px',
-  },
-  filename: {
-    fontSize: '12px',
-    color: '#ffffff',
-    overflow: 'hidden',
-    textOverflow: 'ellipsis',
-    whiteSpace: 'nowrap' as const,
-    lineHeight: 1.3,
-  },
-  contextMenu: {
-    position: 'fixed' as const,
-    backgroundColor: '#2a2a2a',
-    border: '1px solid #555',
-    borderRadius: '4px',
-    boxShadow: '0 2px 8px rgba(0, 0, 0, 0.5)',
-    zIndex: 1000,
-    padding: '4px',
-  },
-  contextMenuItem: {
-    display: 'block',
-    width: '100%',
-    padding: '8px 16px',
-    backgroundColor: 'transparent',
-    border: 'none',
-    color: '#ccc',
-    fontSize: '12px',
-    textAlign: 'left' as const,
-    cursor: 'pointer',
-    borderRadius: '2px',
-    transition: 'background-color 0.2s',
-  },
-};
+// Styles removed - using Tailwind CSS instead

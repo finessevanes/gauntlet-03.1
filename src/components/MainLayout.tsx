@@ -503,7 +503,7 @@ export const MainLayout: React.FC = () => {
   return (
     <PermissionProvider>
       <DragDropZone onDrop={importVideos}>
-        <div style={styles.container} data-layout="main-container">
+        <div className="flex flex-col h-screen bg-dark-900 text-white" data-layout="main-container">
         {/* Recording Indicator (shown when recording) */}
         {isRecording && <RecordingIndicator onStop={handleStopRecording} isStopping={isStopping} />}
 
@@ -581,12 +581,12 @@ export const MainLayout: React.FC = () => {
 
 
         {/* Main Content Area */}
-        <div style={styles.mainContent}>
+        <div className="flex flex-1 h-screen">
           {/* Left Panel - Media Browser */}
-          <div style={styles.leftPanel}>
-            <div style={styles.panelHeader}>
+          <div className="w-80 bg-dark-800 border-r border-dark-700 flex flex-col">
+            <div className="px-4 py-3 bg-dark-700 border-b border-dark-700 text-xs font-bold uppercase text-dark-400 flex justify-between items-center">
               <span>Media Browser</span>
-              <div style={styles.headerButtons}>
+              <div className="flex gap-2 items-center">
                 <RecordingMenu
                   disabled={isRecording}
                   onScreenClick={handleRecordClick}
@@ -600,9 +600,9 @@ export const MainLayout: React.FC = () => {
           </div>
 
           {/* Center Panel - Video Preview */}
-          <div style={styles.centerPanel}>
-            <div style={styles.panelHeader}>Preview</div>
-            <div style={styles.previewContent}>
+          <div className="flex-1 flex flex-col bg-black">
+            <div className="px-4 py-3 bg-dark-700 border-b border-dark-700 text-xs font-bold uppercase text-dark-400">Preview</div>
+            <div className="flex-1 relative bg-dark-950">
               <PreviewPlayer />
             </div>
           </div>
@@ -610,14 +610,14 @@ export const MainLayout: React.FC = () => {
         </div>
 
         {/* Bottom Panel - Timeline */}
-        <div style={styles.bottomPanel}>
-          <div style={styles.panelHeader}>
+        <div className="h-52 bg-dark-900 border-t border-dark-700 flex flex-col">
+          <div className="px-4 py-3 bg-dark-700 border-b border-dark-700 text-xs font-bold uppercase text-dark-400 flex justify-between items-center">
             <span>Timeline</span>
-            <button onClick={handleExportClick} style={styles.exportButton}>
+            <button onClick={handleExportClick} className="px-4 py-2 text-xs font-bold bg-blue-400 text-white border-0 rounded cursor-pointer transition-colors duration-200 hover:bg-blue-500 uppercase">
               Export
             </button>
           </div>
-          <div style={styles.timelineContent}>
+          <div className="flex-1 relative overflow-hidden">
             <Timeline />
           </div>
         </div>
@@ -627,78 +627,5 @@ export const MainLayout: React.FC = () => {
   );
 };
 
-const styles = {
-  container: {
-    display: 'flex',
-    flexDirection: 'column' as const,
-    height: '100vh',
-    backgroundColor: '#1a1a1a',
-    color: '#ffffff',
-  },
-  mainContent: {
-    display: 'flex',
-    flex: 1,
-    height: '100vh',
-  },
-  leftPanel: {
-    width: '300px',
-    backgroundColor: '#1e1e1e',
-    borderRight: '1px solid #333',
-    display: 'flex',
-    flexDirection: 'column' as const,
-  },
-  centerPanel: {
-    flex: 1,
-    display: 'flex',
-    flexDirection: 'column' as const,
-    backgroundColor: '#000',
-  },
-  bottomPanel: {
-    height: '200px',
-    backgroundColor: '#1a1a1a',
-    borderTop: '1px solid #333',
-    display: 'flex',
-    flexDirection: 'column' as const,
-  },
-  panelHeader: {
-    padding: '12px 16px',
-    backgroundColor: '#252525',
-    borderBottom: '1px solid #333',
-    fontSize: '12px',
-    fontWeight: 'bold' as const,
-    textTransform: 'uppercase' as const,
-    color: '#999',
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  headerButtons: {
-    display: 'flex',
-    gap: '8px',
-    alignItems: 'center',
-  },
-  exportButton: {
-    padding: '8px 16px',
-    fontSize: '12px',
-    fontWeight: 'bold' as const,
-    backgroundColor: '#4a9eff',
-    color: '#ffffff',
-    border: 'none',
-    borderRadius: '4px',
-    cursor: 'pointer',
-    transition: 'background-color 0.2s',
-    textTransform: 'uppercase' as const,
-  },
-  previewContent: {
-    flex: 1,
-    display: 'flex',
-    position: 'relative' as const,
-    backgroundColor: '#101010',
-  },
-  timelineContent: {
-    flex: 1,
-    position: 'relative' as const,
-    overflow: 'hidden',
-  },
-};
+// Styles removed - using Tailwind CSS instead
 
