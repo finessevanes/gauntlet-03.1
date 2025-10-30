@@ -246,9 +246,11 @@ export const TimelineClip: React.FC<TimelineClipProps> = ({
       if (isReorderDrag && draggedClipIndex !== null && draggedClipIndex > index) {
         // Dragging backward: use a lower threshold for left half to make it easier to drop before
         dropIndex = mouseX < clipMiddle * 0.7 ? index : index + 1;
+        console.log(`[TimelineClip.handleDragEnter] clip[${index}], BACKWARD drag (from ${draggedClipIndex}), mouseX=${mouseX}, threshold=${clipMiddle * 0.7}, dropIndex=${dropIndex}`);
       } else {
         // Normal drop or dragging forward: use standard midpoint
         dropIndex = mouseX < clipMiddle ? index : index + 1;
+        console.log(`[TimelineClip.handleDragEnter] clip[${index}], ${isReorderDrag ? 'forward/reorder' : 'library'} drag, mouseX=${mouseX}, middle=${clipMiddle}, dropIndex=${dropIndex}`);
       }
 
       onDragEnter(dropIndex);
@@ -283,6 +285,8 @@ export const TimelineClip: React.FC<TimelineClipProps> = ({
       dropIndex = mouseX < clipMiddle ? index : index + 1;
     }
 
+    console.log(`[TimelineClip.handleDrop] clip[${index}] (instanceId=${instanceId}), type=${type}, mouseX=${mouseX}, middle=${clipMiddle}, dropIndex=${dropIndex}`);
+
     // Handle timeline clip reordering
     if (type === 'reorder' && timelineClipId && timelineClipId !== instanceId) {
       e.preventDefault();
@@ -298,6 +302,7 @@ export const TimelineClip: React.FC<TimelineClipProps> = ({
         adjustedDropIndex = dropIndex - 1;
       }
 
+      console.log(`[TimelineClip.handleDrop] REORDER: draggedClipIndex=${draggedClipIndex}, adjustedDropIndex=${adjustedDropIndex}, calling onReorder`);
       onReorder(timelineClipId, adjustedDropIndex);
     }
     // Handle library clip insertion at calculated position (not at the very end)
