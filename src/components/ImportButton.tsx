@@ -19,27 +19,33 @@ export const ImportButton: React.FC<ImportButtonProps> = ({ onClick, disabled = 
       }}
       onClick={onClick}
       disabled={disabled}
+      title="Import video files"
     >
-      + Import
+      <span style={{ fontSize: '14px' }}>⊕</span>
+      Import
     </button>
   );
 };
 
 const styles = {
   button: {
-    backgroundColor: '#4a90e2',
+    backgroundColor: '#4a9eff',
     color: '#ffffff',
     border: 'none',
-    borderRadius: '4px',
-    padding: '6px 12px',
-    fontSize: '12px',
-    fontWeight: 'bold' as const,
+    borderRadius: '6px',
+    padding: '8px 16px',
+    fontSize: '13px',
+    fontWeight: 500,
     cursor: 'pointer',
-    transition: 'background-color 0.2s',
+    transition: 'all 0.2s ease',
+    display: 'flex',
+    alignItems: 'center',
+    gap: '6px',
+    height: '32px',
   },
   disabled: {
     backgroundColor: '#555',
     cursor: 'not-allowed',
-    opacity: 0.6,
+    opacity: 0.5,
   },
 };

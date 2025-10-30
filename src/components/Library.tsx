@@ -209,7 +209,7 @@ const styles = {
     width: '100%',
     height: '100%',
     backgroundColor: '#1a1a1a',
-    padding: '12px',
+    padding: '16px',
     overflowY: 'auto' as const,
     overflowX: 'hidden' as const,
     position: 'relative' as const,
@@ -245,9 +245,9 @@ const styles = {
     },
   },
   clipGrid: {
-    display: 'flex',
-    flexDirection: 'column' as const,
-    gap: '12px',
+    display: 'grid',
+    gridTemplateColumns: 'repeat(2, 1fr)',
+    gap: '16px',
     flex: 1,
   },
   confirmDialog: {
