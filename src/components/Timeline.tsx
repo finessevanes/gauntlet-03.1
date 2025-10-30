@@ -171,13 +171,23 @@ export const Timeline: React.FC = () => {
   // S13: Keyboard shortcut listener for split (Cmd+X / Ctrl+X)
   useEffect(() => {
     const handleSplitShortcut = () => {
+      console.log('[Timeline.splitShortcut] Keyboard shortcut triggered');
+
       // Find the clip at playhead position (if any)
       const clipAtPlayhead = timeline.clips.find(tc =>
         playheadPosition > tc.inPoint && playheadPosition < tc.outPoint
       );
 
+      console.log('[Timeline.splitShortcut] Playhead detection:', {
+        playheadPosition,
+        clipAtPlayhead: clipAtPlayhead ? clipAtPlayhead.instanceId.substring(0, 8) : null,
+      });
+
       if (clipAtPlayhead) {
+        console.log('[Timeline.splitShortcut] Attempting split on clip:', clipAtPlayhead.instanceId.substring(0, 8));
         handleSplit(clipAtPlayhead.instanceId);
+      } else {
+        console.log('[Timeline.splitShortcut] No clip found at playhead position');
       }
     };
 
@@ -570,6 +580,26 @@ export const Timeline: React.FC = () => {
             const clipAtPlayhead = timeline.clips.find(tc =>
               playheadPosition > tc.inPoint && playheadPosition < tc.outPoint
             );
+
+            // Log all clips and their bounds vs playhead (less frequent)
+            if (!console.loggedAtPlayhead || Math.floor(playheadPosition * 10) !== Math.floor((console.loggedAtPlayhead as number) * 10)) {
+              console.log('[Timeline.splitToolbar] Playhead detection:', {
+                playheadPosition: playheadPosition.toFixed(4),
+                totalClips: timeline.clips.length,
+                clips: timeline.clips.map(tc => ({
+                  instanceId: tc.instanceId.substring(0, 8),
+                  inPoint: tc.inPoint.toFixed(4),
+                  outPoint: tc.outPoint.toFixed(4),
+                  duration: (tc.outPoint - tc.inPoint).toFixed(4),
+                  isWithinClip: playheadPosition > tc.inPoint && playheadPosition < tc.outPoint,
+                  playhead_gt_inPoint: playheadPosition > tc.inPoint,
+                  playhead_lt_outPoint: playheadPosition < tc.outPoint,
+                })),
+                clipAtPlayhead: clipAtPlayhead ? clipAtPlayhead.instanceId.substring(0, 8) : null,
+              });
+              (console as any).loggedAtPlayhead = playheadPosition;
+            }
+
             return (
               <>
                 <button

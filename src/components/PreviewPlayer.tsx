@@ -60,7 +60,8 @@ export const PreviewPlayer: React.FC = () => {
       const clip = clips.find((c) => c.id === timelineClip.clipId);
       if (!clip) continue;
 
-      const effectiveDuration = getEffectiveDuration(clip);
+      // Use timeline clip's trim points (inPoint/outPoint) for duration, not the library clip's
+      const effectiveDuration = timelineClip.outPoint - timelineClip.inPoint;
       if (effectiveDuration <= 0) continue;
 
       segments.push({

@@ -26,12 +26,29 @@ export function useSplit(): UseSplitResult {
     const timelineClip = timeline.clips.find(tc => tc.instanceId === clipInstanceId);
 
     if (!timelineClip) {
+      console.log('[useSplit.canSplit] Clip not found:', clipInstanceId);
       return false;
     }
 
     // Check if playhead is strictly within the clip's trimmed range
     // Exclude edges to avoid creating empty segments
     const isWithinClip = playheadPosition > timelineClip.inPoint && playheadPosition < timelineClip.outPoint;
+
+    console.log('[useSplit.canSplit] Split validation:', {
+      clipInstanceId: clipInstanceId.substring(0, 8),
+      playheadPosition,
+      timelineClip: {
+        instanceId: timelineClip.instanceId.substring(0, 8),
+        inPoint: timelineClip.inPoint,
+        outPoint: timelineClip.outPoint,
+        duration: timelineClip.outPoint - timelineClip.inPoint,
+      },
+      checks: {
+        playheadPosition_greater_than_inPoint: playheadPosition > timelineClip.inPoint,
+        playheadPosition_less_than_outPoint: playheadPosition < timelineClip.outPoint,
+      },
+      isWithinClip,
+    });
 
     return isWithinClip;
   }, [timeline.clips, playheadPosition]);
