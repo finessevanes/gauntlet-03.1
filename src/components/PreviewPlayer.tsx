@@ -14,6 +14,8 @@ import { normalizeFilePath, toFileUrl } from '../utils/fileUrl';
 interface TimelineSegment {
   instanceId: string;
   clip: Clip;
+  timelineInPoint: number;  // Timeline clip's actual inPoint (may be trimmed differently)
+  timelineOutPoint: number; // Timeline clip's actual outPoint (may be trimmed differently)
   start: number;
   end: number;
 }
@@ -35,6 +37,7 @@ export const PreviewPlayer: React.FC = () => {
   const timelineSegmentsRef = useRef<TimelineSegment[]>([]);
   const isPlayingRef = useRef<boolean>(false);
   const lastLibraryClipIdRef = useRef<string | null>(null);
+  const currentSegmentIndexRef = useRef<number>(0); // FIX: Track segment index in ref to avoid race conditions
 
   const clips = useSessionStore((state) => state.clips);
   const timeline = useSessionStore((state) => state.timeline);
@@ -67,12 +70,28 @@ export const PreviewPlayer: React.FC = () => {
       segments.push({
         instanceId: timelineClip.instanceId,
         clip,
+        timelineInPoint: timelineClip.inPoint,   // Store timeline clip's inPoint
+        timelineOutPoint: timelineClip.outPoint, // Store timeline clip's outPoint
         start: cursor,
         end: cursor + effectiveDuration,
       });
 
       cursor += effectiveDuration;
     }
+
+    console.log('[PreviewPlayer.timelineSegments] Updated segments:', {
+      totalSegments: segments.length,
+      segments: segments.map(s => ({
+        instanceId: s.instanceId.substring(0, 8),
+        start: s.start.toFixed(4),
+        end: s.end.toFixed(4),
+        duration: (s.end - s.start).toFixed(4),
+        libraryInPoint: s.clip.inPoint.toFixed(4),
+        timelineInPoint: s.timelineInPoint.toFixed(4),
+        timelineOutPoint: s.timelineOutPoint.toFixed(4),
+      })),
+      totalDuration: cursor.toFixed(4),
+    });
 
     return segments;
   }, [timeline.clips, clips]);
@@ -188,62 +207,88 @@ export const PreviewPlayer: React.FC = () => {
     setIsBuffering(true);
     setVideoError(null);
 
-    // Force reload by clearing src first to avoid Chromium caching issues
-    video.removeAttribute('src');
-    video.load();
-    video.src = fileUrl;
-    video.load();
-
-    // Store segment details in dataset for event handlers (avoids stale closures)
+    // FIX: Update segment tracking ref BEFORE changing src to avoid race conditions with timeUpdate events
     if (typeof options.segmentIndex === 'number') {
-      video.dataset.segmentIndex = String(options.segmentIndex);
-    } else {
-      delete video.dataset.segmentIndex;
+      console.log('[PreviewPlayer.loadClip] Updating currentSegmentIndexRef:', {
+        newSegmentIndex: options.segmentIndex,
+        oldSegmentIndex: currentSegmentIndexRef.current,
+      });
+      currentSegmentIndexRef.current = options.segmentIndex;
     }
-
     if (typeof options.segmentStart === 'number') {
       video.dataset.segmentStart = String(options.segmentStart);
     } else {
       delete video.dataset.segmentStart;
     }
+
+    // Force reload by clearing src first to avoid Chromium caching issues
+    video.removeAttribute('src');
+    video.load();
+    video.src = fileUrl;
+    video.load();
   }, []);
 
   const syncTimelineClipFromPlayhead = useCallback(() => {
     if (previewSource !== 'timeline') return;
+    if (!hasTimelineContent) return;
 
-    if (!activeTimelineSegment) {
-      if (hasTimelineContent) {
-        // Ensure we pick the correct segment from playhead
-        const index = timelineSegments.findIndex((segment) => (
-          playheadPosition >= segment.start && playheadPosition < segment.end
-        ));
-        if (index !== -1 && index !== currentClipIndex) {
-          setCurrentClipIndex(index);
-        }
-      }
+    // FIX: Always determine correct segment from playhead position (don't rely on potentially stale currentClipIndex)
+    const correctSegmentIndex = timelineSegments.findIndex((segment) => (
+      playheadPosition >= segment.start && playheadPosition < segment.end
+    ));
+
+    if (correctSegmentIndex === -1) {
+      // Playhead is out of range
       return;
     }
 
-    const offsetWithinSegment = Math.min(
-      Math.max(playheadPosition - activeTimelineSegment.start, 0),
-      activeTimelineSegment.end - activeTimelineSegment.start,
-    );
-    const targetVideoTime = activeTimelineSegment.clip.inPoint + offsetWithinSegment;
+    // FIX: Update ref to correct segment IMMEDIATELY
+    currentSegmentIndexRef.current = correctSegmentIndex;
 
-    loadClip(activeTimelineSegment.clip, {
+    const correctSegment = timelineSegments[correctSegmentIndex];
+    if (!correctSegment) return;
+
+    // If state doesn't match, update it
+    if (correctSegmentIndex !== currentClipIndex) {
+      console.log('[PreviewPlayer.syncTimelineClipFromPlayhead] Clip index mismatch, updating:', {
+        playheadPosition: playheadPosition.toFixed(4),
+        currentClipIndex,
+        correctSegmentIndex,
+      });
+      setCurrentClipIndex(correctSegmentIndex);
+    }
+
+    const offsetWithinSegment = Math.min(
+      Math.max(playheadPosition - correctSegment.start, 0),
+      correctSegment.end - correctSegment.start,
+    );
+    // IMPORTANT: Use timeline clip's inPoint, NOT library clip's inPoint
+    const targetVideoTime = correctSegment.timelineInPoint + offsetWithinSegment;
+
+    console.log('[PreviewPlayer.syncTimelineClipFromPlayhead] Loading clip:', {
+      playheadPosition: playheadPosition.toFixed(4),
+      segmentIndex: correctSegmentIndex,
+      segmentStart: correctSegment.start.toFixed(4),
+      segmentEnd: correctSegment.end.toFixed(4),
+      offsetWithinSegment: offsetWithinSegment.toFixed(4),
+      libraryClipInPoint: correctSegment.clip.inPoint.toFixed(4),
+      timelineClipInPoint: correctSegment.timelineInPoint.toFixed(4),
+      targetVideoTime: targetVideoTime.toFixed(4),
+    });
+
+    loadClip(correctSegment.clip, {
       source: 'timeline',
-      segmentIndex: currentClipIndex,
-      segmentStart: activeTimelineSegment.start,
+      segmentIndex: correctSegmentIndex,
+      segmentStart: correctSegment.start,
       targetTime: targetVideoTime,
     });
   }, [
-    activeTimelineSegment,
-    currentClipIndex,
     hasTimelineContent,
     loadClip,
     playheadPosition,
     previewSource,
     timelineSegments,
+    currentClipIndex,
   ]);
 
   const syncLibraryClip = useCallback(() => {
@@ -322,8 +367,21 @@ export const PreviewPlayer: React.FC = () => {
     ));
 
     if (index !== -1 && index !== currentClipIndex) {
+      console.log('[PreviewPlayer.clipIndexUpdate] Clip index changed:', {
+        playheadPosition,
+        newClipIndex: index,
+        segment: index >= 0 ? {
+          instanceId: timelineSegments[index].instanceId.substring(0, 8),
+          start: timelineSegments[index].start.toFixed(4),
+          end: timelineSegments[index].end.toFixed(4),
+        } : null,
+      });
       setCurrentClipIndex(index);
     } else if (index === -1 && playheadPosition >= timeline.duration) {
+      console.log('[PreviewPlayer.clipIndexUpdate] Reached end of timeline:', {
+        playheadPosition,
+        duration: timeline.duration,
+      });
       setCurrentClipIndex(timelineSegments.length - 1);
     }
   }, [
@@ -401,6 +459,14 @@ export const PreviewPlayer: React.FC = () => {
         const relative = targetTime - clip.inPoint;
         const timelineTime = segmentStart + relative;
         if (Math.abs(timelineTime - playheadPosition) > 0.05) {
+          console.log('[PreviewPlayer.loadedmetadata] Adjusting playhead after metadata load:', {
+            targetTime: targetTime.toFixed(4),
+            clipInPoint: clip.inPoint.toFixed(4),
+            relative: relative.toFixed(4),
+            segmentStart: segmentStart.toFixed(4),
+            calculatedTimelineTime: timelineTime.toFixed(4),
+            currentPlayheadPosition: playheadPosition.toFixed(4),
+          });
           setPlayheadPosition(Math.max(0, timelineTime));
         }
       }
@@ -441,25 +507,57 @@ export const PreviewPlayer: React.FC = () => {
         const relative = Math.min(Math.max(videoTime - clip.inPoint, 0), effective);
         setLibraryCurrentTime(relative);
       } else if (activeSourceRef.current === 'timeline') {
-        const segmentIndex = Number(video.dataset.segmentIndex) || 0;
+        // FIX: Use currentSegmentIndexRef instead of video.dataset.segmentIndex to avoid race conditions
+        const segmentIndex = currentSegmentIndexRef.current;
         const segments = timelineSegmentsRef.current;
         const segment = segments[segmentIndex];
-        if (!segment) return;
+        if (!segment) {
+          console.warn('[PreviewPlayer.handleTimeUpdate] Segment not found:', {
+            segmentIndex,
+            totalSegments: segments.length,
+          });
+          return;
+        }
 
-        const relative = videoTime - segment.clip.inPoint;
+        // FIX: Use timeline clip's inPoint (may differ from library clip's inPoint due to trimming)
+        const relative = videoTime - segment.timelineInPoint;
         const timelineTime = segment.start + Math.max(relative, 0);
 
         if (Math.abs(timelineTime - playheadPosition) > 0.05) {
+          console.log('[PreviewPlayer.handleTimeUpdate] Setting playhead:', {
+            videoTime: videoTime.toFixed(4),
+            segmentIndex,
+            segmentInstanceId: segment.instanceId.substring(0, 8),
+            segmentStart: segment.start.toFixed(4),
+            timelineInPoint: segment.timelineInPoint.toFixed(4),
+            relative: relative.toFixed(4),
+            calculatedTimelineTime: timelineTime.toFixed(4),
+            currentPlayheadPosition: playheadPosition.toFixed(4),
+            willSet: timelineTime.toFixed(4),
+          });
           setPlayheadPosition(Math.min(Math.max(timelineTime, 0), timeline.duration));
         }
 
-        const threshold = segment.clip.outPoint - 0.02;
+        // FIX: Use timeline clip's outPoint instead of library clip's outPoint
+        const threshold = segment.timelineOutPoint - 0.02;
         if (videoTime >= threshold) {
           const nextIndex = segmentIndex + 1;
           if (nextIndex < segments.length) {
+            console.log('[PreviewPlayer.handleTimeUpdate] Transitioning to next clip:', {
+              videoTime: videoTime.toFixed(4),
+              threshold: threshold.toFixed(4),
+              currentSegmentIndex: segmentIndex,
+              nextSegmentIndex: nextIndex,
+              nextSegmentStart: segments[nextIndex].start.toFixed(4),
+            });
+            currentSegmentIndexRef.current = nextIndex; // FIX: Update ref when transitioning
             setCurrentClipIndex(nextIndex);
             setPlayheadPosition(segments[nextIndex].start);
           } else {
+            console.log('[PreviewPlayer.handleTimeUpdate] Playback ended:', {
+              videoTime: videoTime.toFixed(4),
+              threshold: threshold.toFixed(4),
+            });
             setIsPlaying(false);
             setPlayheadPosition(timeline.duration);
           }
@@ -472,7 +570,7 @@ export const PreviewPlayer: React.FC = () => {
         setIsPlaying(false);
       } else if (activeSourceRef.current === 'timeline') {
         const segments = timelineSegmentsRef.current;
-        const segmentIndex = Number(video.dataset.segmentIndex) || 0;
+        const segmentIndex = currentSegmentIndexRef.current; // FIX: Use ref instead of dataset
         if (segmentIndex >= segments.length - 1) {
           setIsPlaying(false);
           setPlayheadPosition(timeline.duration);

@@ -30,22 +30,25 @@ export function useSplit(): UseSplitResult {
       return false;
     }
 
-    // Check if playhead is strictly within the clip's trimmed range
+    // Check if playhead is strictly within the clip's timeline range
     // Exclude edges to avoid creating empty segments
-    const isWithinClip = playheadPosition > timelineClip.inPoint && playheadPosition < timelineClip.outPoint;
+    const clipEnd = timelineClip.startTime + (timelineClip.outPoint - timelineClip.inPoint);
+    const isWithinClip = playheadPosition > timelineClip.startTime && playheadPosition < clipEnd;
 
     console.log('[useSplit.canSplit] Split validation:', {
       clipInstanceId: clipInstanceId.substring(0, 8),
       playheadPosition,
       timelineClip: {
         instanceId: timelineClip.instanceId.substring(0, 8),
+        startTime: timelineClip.startTime,
+        clipEnd,
         inPoint: timelineClip.inPoint,
         outPoint: timelineClip.outPoint,
         duration: timelineClip.outPoint - timelineClip.inPoint,
       },
       checks: {
-        playheadPosition_greater_than_inPoint: playheadPosition > timelineClip.inPoint,
-        playheadPosition_less_than_outPoint: playheadPosition < timelineClip.outPoint,
+        playheadPosition_greater_than_startTime: playheadPosition > timelineClip.startTime,
+        playheadPosition_less_than_clipEnd: playheadPosition < clipEnd,
       },
       isWithinClip,
     });

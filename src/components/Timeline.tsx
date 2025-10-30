@@ -174,9 +174,10 @@ export const Timeline: React.FC = () => {
       console.log('[Timeline.splitShortcut] Keyboard shortcut triggered');
 
       // Find the clip at playhead position (if any)
-      const clipAtPlayhead = timeline.clips.find(tc =>
-        playheadPosition > tc.inPoint && playheadPosition < tc.outPoint
-      );
+      const clipAtPlayhead = timeline.clips.find(tc => {
+        const clipEnd = tc.startTime + (tc.outPoint - tc.inPoint);
+        return playheadPosition >= tc.startTime && playheadPosition <= clipEnd;
+      });
 
       console.log('[Timeline.splitShortcut] Playhead detection:', {
         playheadPosition,
@@ -408,6 +409,11 @@ export const Timeline: React.FC = () => {
 
   // Handle playhead seek
   const handleSeek = async (time: number) => {
+    console.log('[Timeline.handleSeek] User scrubbing playhead:', {
+      newPosition: time.toFixed(4),
+      previousPosition: playheadPosition.toFixed(4),
+      source: 'user-scrub',
+    });
     if (previewSource !== 'timeline') {
       setPreviewSource('timeline');
     }
@@ -577,24 +583,29 @@ export const Timeline: React.FC = () => {
         <div style={styles.splitToolbar}>
           {(() => {
             // Find the clip at playhead position (if any)
-            const clipAtPlayhead = timeline.clips.find(tc =>
-              playheadPosition > tc.inPoint && playheadPosition < tc.outPoint
-            );
+            const clipAtPlayhead = timeline.clips.find(tc => {
+              const clipEnd = tc.startTime + (tc.outPoint - tc.inPoint);
+              return playheadPosition >= tc.startTime && playheadPosition <= clipEnd;
+            });
 
             // Log all clips and their bounds vs playhead (less frequent)
             if (!console.loggedAtPlayhead || Math.floor(playheadPosition * 10) !== Math.floor((console.loggedAtPlayhead as number) * 10)) {
               console.log('[Timeline.splitToolbar] Playhead detection:', {
                 playheadPosition: playheadPosition.toFixed(4),
                 totalClips: timeline.clips.length,
-                clips: timeline.clips.map(tc => ({
-                  instanceId: tc.instanceId.substring(0, 8),
-                  inPoint: tc.inPoint.toFixed(4),
-                  outPoint: tc.outPoint.toFixed(4),
-                  duration: (tc.outPoint - tc.inPoint).toFixed(4),
-                  isWithinClip: playheadPosition > tc.inPoint && playheadPosition < tc.outPoint,
-                  playhead_gt_inPoint: playheadPosition > tc.inPoint,
-                  playhead_lt_outPoint: playheadPosition < tc.outPoint,
-                })),
+                clips: timeline.clips.map(tc => {
+                  const clipEnd = tc.startTime + (tc.outPoint - tc.inPoint);
+                  return {
+                    instanceId: tc.instanceId.substring(0, 8),
+                    inPoint: tc.inPoint.toFixed(4),
+                    outPoint: tc.outPoint.toFixed(4),
+                    duration: (tc.outPoint - tc.inPoint).toFixed(4),
+                    startTime: tc.startTime.toFixed(4),
+                    isWithinClip: playheadPosition >= tc.startTime && playheadPosition <= clipEnd,
+                    playhead_gte_startTime: playheadPosition >= tc.startTime,
+                    playhead_lte_clipEnd: playheadPosition <= clipEnd,
+                  };
+                }),
                 clipAtPlayhead: clipAtPlayhead ? clipAtPlayhead.instanceId.substring(0, 8) : null,
               });
               (console as any).loggedAtPlayhead = playheadPosition;
@@ -800,6 +811,7 @@ export const Timeline: React.FC = () => {
               timelineDuration={timeline.duration}
               zoomLevel={zoomLevel}
               padding={TIMELINE_PADDING}
+              scrollContainerRef={trackRef}
               onSeek={handleSeek}
             />
           </div>

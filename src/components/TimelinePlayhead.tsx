@@ -11,6 +11,7 @@ interface TimelinePlayheadProps {
   timelineDuration: number;   // Total duration in seconds
   zoomLevel: number;          // Zoom level (100-1000)
   padding: number;            // Timeline horizontal padding (px)
+  scrollContainerRef: React.RefObject<HTMLDivElement>;  // Reference to scrollable container
   onSeek: (time: number) => void;
 }
 
@@ -19,6 +20,7 @@ export const TimelinePlayhead: React.FC<TimelinePlayheadProps> = ({
   timelineDuration,
   zoomLevel,
   padding,
+  scrollContainerRef,
   onSeek,
 }) => {
   const [isDragging, setIsDragging] = useState(false);
@@ -39,10 +41,17 @@ export const TimelinePlayhead: React.FC<TimelinePlayheadProps> = ({
     if (!isDragging) return;
 
     const handleMouseMove = (e: MouseEvent) => {
-      if (!containerRef.current) return;
+      if (!scrollContainerRef.current) return;
 
-      const rect = containerRef.current.getBoundingClientRect();
-      const x = e.clientX - rect.left - padding; // Account for padding
+      // Get the scroll container's viewport position (not the absolutely positioned playhead container)
+      const trackRect = scrollContainerRef.current.getBoundingClientRect();
+      const scrollOffset = scrollContainerRef.current.scrollLeft;
+
+      // Convert viewport coordinates to timeline coordinates:
+      // 1. Position relative to scroll container's left edge
+      // 2. Add scroll offset to convert to content coordinates
+      // 3. Subtract padding to account for timeline padding
+      const x = e.clientX - trackRect.left + scrollOffset - padding;
       const newTime = Math.max(0, Math.min(x / pixelsPerSecond, timelineDuration));
 
       onSeek(newTime);
@@ -59,7 +68,7 @@ export const TimelinePlayhead: React.FC<TimelinePlayheadProps> = ({
       document.removeEventListener('mousemove', handleMouseMove);
       document.removeEventListener('mouseup', handleMouseUp);
     };
-  }, [isDragging, pixelsPerSecond, timelineDuration, onSeek]);
+  }, [isDragging, pixelsPerSecond, timelineDuration, onSeek, padding]);
 
   return (
     <div
