@@ -204,6 +204,25 @@ export const Timeline: React.FC = () => {
     return () => resizeObserver.disconnect();
   }, []);
 
+  // Adjust scroll position when zoom changes (after component re-renders with new timeline width)
+  useEffect(() => {
+    if (!trackRef.current) return;
+
+    const newPixelsPerSecond = getPixelsPerSecond(zoomLevel);
+    const playheadPixelPosition = TIMELINE_PADDING + (playheadPosition * newPixelsPerSecond);
+    const viewportWidth = trackRef.current.clientWidth;
+    const scrollMargin = viewportWidth * 0.3; // Keep playhead 30% from left edge
+
+    // Calculate target scroll position to keep playhead visible
+    const targetScroll = Math.max(
+      0,
+      playheadPixelPosition - scrollMargin
+    );
+
+    // Set scroll position
+    trackRef.current.scrollLeft = targetScroll;
+  }, [zoomLevel, playheadPosition]);
+
   // Log timeline clips to console whenever they change (added, removed, or trimmed)
   useEffect(() => {
     // Timeline update logic
@@ -408,6 +427,7 @@ export const Timeline: React.FC = () => {
       await window.electron.timeline.setZoom(zoom);
     }
   };
+
 
   // Handle playhead seek
   const handleSeek = async (time: number) => {
@@ -620,17 +640,6 @@ export const Timeline: React.FC = () => {
 
       {/* Timeline Track Container with Fixed Header */}
       <div style={styles.timelineWrapper}>
-        {/* Fixed Track Labels Header */}
-        <div style={styles.trackLabelsHeader}>
-          {/* Ruler header cell */}
-          <div style={styles.trackLabelHeader}></div>
-          <div style={styles.trackLabel}>V1</div>
-          <div style={styles.trackLabel}>A2</div>
-          <div style={styles.trackLabel}>A1</div>
-          <div style={styles.trackLabel}>TXT</div>
-          <div style={styles.trackLabel}>AO</div>
-        </div>
-
         {/* Scrollable Timeline Track */}
         <div
           ref={trackRef}
@@ -674,30 +683,22 @@ export const Timeline: React.FC = () => {
             {(() => {
               const isReorderDrag = draggedClipId !== null;
               const shouldRender = (isDraggingLibraryClip || isReorderDrag) && dropTargetIndex !== null;
-              console.log(`[Timeline.DropIndicator] shouldRender=${shouldRender}, dropTargetIndex=${dropTargetIndex}, isDraggingLibraryClip=${isDraggingLibraryClip}, isReorderDrag=${isReorderDrag}`);
               return shouldRender;
             })() && (
               <div
                 style={{
                   position: 'absolute' as const,
                   left: (() => {
-                    // Calculate the pixel position for the drop indicator
                     let pixelPos: string;
                     if (dropTargetIndex === 0) {
-                      // Insert at beginning
                       pixelPos = `${TIMELINE_PADDING}px`;
-                      console.log(`[Timeline.DropIndicator] dropTargetIndex=0 (beginning), position=${pixelPos}`);
                     } else if (dropTargetIndex >= timeline.clips.length) {
-                      // Insert at end
                       const lastTimelineClip = timeline.clips[timeline.clips.length - 1];
                       const lastClipEnd = lastTimelineClip.startTime + (lastTimelineClip.outPoint - lastTimelineClip.inPoint);
                       pixelPos = `${TIMELINE_PADDING + lastClipEnd * pixelsPerSecond}px`;
-                      console.log(`[Timeline.DropIndicator] dropTargetIndex=${dropTargetIndex} >= clipCount=${timeline.clips.length} (end), lastClipStart=${lastTimelineClip.startTime}, lastClipDuration=${lastTimelineClip.outPoint - lastTimelineClip.inPoint}, lastClipEnd=${lastClipEnd}, position=${pixelPos}`);
                     } else {
-                      // Insert between clips - show at start of clip at dropTargetIndex
                       const targetTimelineClip = timeline.clips[dropTargetIndex];
                       pixelPos = `${TIMELINE_PADDING + targetTimelineClip.startTime * pixelsPerSecond}px`;
-                      console.log(`[Timeline.DropIndicator] dropTargetIndex=${dropTargetIndex} (between clips), clipStartTime=${targetTimelineClip.startTime}, position=${pixelPos}`);
                     }
                     return pixelPos;
                   })(),
@@ -717,7 +718,6 @@ export const Timeline: React.FC = () => {
               const clip = clips.find((c) => c.id === timelineClip.clipId);
               if (!clip) return null;
 
-              // Use timeline clip's trim points directly
               const effectiveClip = {
                 ...clip,
                 inPoint: timelineClip.inPoint,
@@ -726,7 +726,6 @@ export const Timeline: React.FC = () => {
 
               const isClipSelected = selectedClipId === timelineClip.instanceId && selectedClipSource === 'timeline';
 
-              // Check if this clip instance is being trimmed and overlaps with any other clip
               const isBeingTrimmed = trimDrag.dragging !== null && trimDrag.dragging.instanceId === timelineClip.instanceId;
               let isTrimmedClipOverlapping = false;
 
@@ -894,37 +893,6 @@ const styles = {
     fontSize: '16px',
     color: '#4a9eff',
     fontWeight: 'bold' as const,
-  },
-  trackLabelsHeader: {
-    width: '60px',
-    minWidth: '60px',
-    backgroundColor: '#252525',
-    borderRight: '1px solid #333',
-    display: 'flex',
-    flexDirection: 'column' as const,
-    zIndex: 10,
-  },
-  trackLabelHeader: {
-    height: '24px',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    fontSize: '12px',
-    fontWeight: 'bold' as const,
-    color: '#999',
-    borderBottom: '1px solid #333',
-    backgroundColor: '#2a2a2a',
-  },
-  trackLabel: {
-    height: '32px',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    fontSize: '12px',
-    fontWeight: 'bold' as const,
-    color: '#999',
-    borderBottom: '1px solid #333',
-    backgroundColor: '#1e1e1e',
   },
   // S13: Split toolbar styles
   splitToolbar: {
