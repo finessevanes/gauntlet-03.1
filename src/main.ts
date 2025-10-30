@@ -1,6 +1,7 @@
 import { app, BrowserWindow, dialog } from 'electron';
 import path from 'node:path';
 import started from 'electron-squirrel-startup';
+import dotenv from 'dotenv';
 import { registerAppHandlers } from './main/ipc-handlers/app';
 import { registerImportHandlers } from './main/ipc-handlers/import';
 import { registerLibraryHandlers } from './main/ipc-handlers/library';
@@ -8,7 +9,11 @@ import { registerTimelineHandlers } from './main/ipc-handlers/timeline';
 import { registerTrimHandlers } from './main/ipc-handlers/trim';
 import { registerExportHandlers } from './main/ipc-handlers/export';
 import { registerRecordingHandlers, hasPiPRecordingActive } from './main/ipc-handlers/recording';
+import { registerAIHandlers } from './main/ipc-handlers/ai';
 import { cleanupAllActiveSessions, hasActiveRecordingSessions } from './main/services/screenRecordingService';
+
+// Load environment variables from .env file
+dotenv.config();
 
 // Handle creating/removing shortcuts on Windows when installing/uninstalling.
 if (started) {
@@ -98,6 +103,7 @@ app.on('ready', () => {
   registerTrimHandlers();
   registerExportHandlers();
   registerRecordingHandlers(); // S9: Screen Recording
+  registerAIHandlers(); // S9: Teleprompter
 
   // Create the main window
   createWindow();
