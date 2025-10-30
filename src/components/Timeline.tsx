@@ -639,8 +639,8 @@ export const Timeline: React.FC = () => {
                 ? { ...clip, inPoint: trimOverride.inPoint, outPoint: trimOverride.outPoint }
                 : clip;
 
-              // Check if this clip is being trimmed and overlaps with any other clip
-              const isBeingTrimmed = trimDrag.dragging !== null && trimDrag.dragging.clipId === clip.id;
+              // Check if this clip instance is being trimmed and overlaps with any other clip
+              const isBeingTrimmed = trimDrag.dragging !== null && trimDrag.dragging.instanceId === timelineClip.instanceId;
               let isTrimmedClipOverlapping = false;
 
               if (isBeingTrimmed && trimDrag.draggedInPoint !== null && trimDrag.draggedOutPoint !== null) {
@@ -696,9 +696,9 @@ export const Timeline: React.FC = () => {
                   hoveredEdge={hoveredEdge}
                   onEdgeHoverChange={handleEdgeHoverChange}
                   onTrimStart={handleTrimStart}
-                  isTrimming={trimDrag.dragging !== null && trimDrag.dragging.clipId === clip.id}
-                  draggedInPoint={trimDrag.dragging?.clipId === clip.id ? trimDrag.draggedInPoint : null}
-                  draggedOutPoint={trimDrag.dragging?.clipId === clip.id ? trimDrag.draggedOutPoint : null}
+                  isTrimming={trimDrag.dragging !== null && trimDrag.dragging.instanceId === timelineClip.instanceId}
+                  draggedInPoint={trimDrag.dragging?.instanceId === timelineClip.instanceId ? trimDrag.draggedInPoint : null}
+                  draggedOutPoint={trimDrag.dragging?.instanceId === timelineClip.instanceId ? trimDrag.draggedOutPoint : null}
                   isTrimmedClipOverlapping={isTrimmedClipOverlapping}
                 />
               );
