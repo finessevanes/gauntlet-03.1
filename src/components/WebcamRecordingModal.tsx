@@ -16,6 +16,7 @@ interface WebcamRecordingModalProps {
   isOpen: boolean;
   onClose: () => void;
   onRecordingComplete: (filePath: string) => void;
+  onOpenTeleprompter?: () => void;
 }
 
 type RecordingStatus = 'idle' | 'preview' | 'recording' | 'saving' | 'error';
@@ -24,6 +25,7 @@ export const WebcamRecordingModal: React.FC<WebcamRecordingModalProps> = ({
   isOpen,
   onClose,
   onRecordingComplete,
+  onOpenTeleprompter,
 }) => {
   const permissionModal = usePermissionModal();
   const shouldRender = usePermissionGate(isOpen);
@@ -541,6 +543,11 @@ export const WebcamRecordingModal: React.FC<WebcamRecordingModalProps> = ({
                 ← Back
               </button>
               <div style={styles.footerSpacer}></div>
+              {onOpenTeleprompter && (
+                <button style={styles.generateScriptButton} onClick={onOpenTeleprompter}>
+                  📝 Generate Script
+                </button>
+              )}
               <button style={styles.cancelButton} onClick={() => {
                 cleanupCamera();
                 onClose();
@@ -566,6 +573,7 @@ export const WebcamRecordingModal: React.FC<WebcamRecordingModalProps> = ({
           )}
         </div>
       </div>
+
     </div>
   );
 };
@@ -799,6 +807,16 @@ const styles = {
   },
   cancelButton: {
     backgroundColor: '#555',
+    color: '#ffffff',
+    border: 'none',
+    borderRadius: '4px',
+    padding: '8px 16px',
+    fontSize: '12px',
+    fontWeight: 'bold' as const,
+    cursor: 'pointer',
+  },
+  generateScriptButton: {
+    backgroundColor: '#3498db',
     color: '#ffffff',
     border: 'none',
     borderRadius: '4px',

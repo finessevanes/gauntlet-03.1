@@ -23,6 +23,7 @@ import { PreviewPlayer } from './PreviewPlayer';
 import ExportModal from './ExportModal';
 import PresetSelector from './PresetSelector';
 import PresetManager from './PresetManager';
+import { TeleprompterModal } from './TeleprompterModal';
 import { ExportPreset } from '../types/export';
 import { useSessionStore } from '../store/sessionStore';
 
@@ -57,6 +58,9 @@ export const MainLayout: React.FC = () => {
 
   // PiP recording state (Story S11)
   const [isPiPModalOpen, setIsPiPModalOpen] = useState(false);
+
+  // Teleprompter modal state (Story S9)
+  const [isTeleprompterOpen, setIsTeleprompterOpen] = useState(false);
 
   // Export state
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
@@ -518,6 +522,7 @@ export const MainLayout: React.FC = () => {
           isOpen={isWebcamModalOpen}
           onClose={() => setIsWebcamModalOpen(false)}
           onRecordingComplete={handleWebcamRecordingComplete}
+          onOpenTeleprompter={() => setIsTeleprompterOpen(true)}
         />
 
         {/* PiP Recording Modal (Story S11) */}
@@ -525,6 +530,13 @@ export const MainLayout: React.FC = () => {
           isOpen={isPiPModalOpen}
           onClose={() => setIsPiPModalOpen(false)}
           onRecordingComplete={handlePiPRecordingComplete}
+        />
+
+        {/* Teleprompter Modal (Story S9) */}
+        <TeleprompterModal
+          isOpen={isTeleprompterOpen}
+          onClose={() => setIsTeleprompterOpen(false)}
+          showBackdrop={false}
         />
 
         {/* Error Modal */}

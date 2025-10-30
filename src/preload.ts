@@ -343,6 +343,18 @@ contextBridge.exposeInMainWorld('electron', {
   },
 
   /**
+   * AI API (Story S9: Teleprompter)
+   */
+  ai: {
+    /**
+     * Generate script with AI
+     */
+    generateScript: (request: { topic: string; duration: number; feedback?: string; previousScript?: string }) => {
+      return ipcRenderer.invoke('ai:generate-script', request);
+    },
+  },
+
+  /**
    * Drag & Drop API (Story 2: Video Import)
    * Sets up event listener and callback
    */
@@ -441,6 +453,9 @@ declare global {
       };
       dragDrop: {
         onDrop(callback: (filePaths: string[]) => void): () => void;
+      };
+      ai: {
+        generateScript(request: { topic: string; duration: number; feedback?: string; previousScript?: string }): Promise<{ scriptText: string; estimatedDuration: number }>;
       };
     };
   }
