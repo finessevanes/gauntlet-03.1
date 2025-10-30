@@ -21,6 +21,9 @@ import { useScreenRecorder } from '../hooks/useScreenRecorder';
 import { Timeline } from './Timeline';
 import { PreviewPlayer } from './PreviewPlayer';
 import ExportModal from './ExportModal';
+import PresetSelector from './PresetSelector';
+import PresetManager from './PresetManager';
+import { ExportPreset } from '../types/export';
 import { useSessionStore } from '../store/sessionStore';
 
 export const MainLayout: React.FC = () => {
@@ -30,6 +33,10 @@ export const MainLayout: React.FC = () => {
   const { isRecording, startRecording, stopRecording, cancelRecording } = useScreenRecorder();
   const [isRecordDialogOpen, setIsRecordDialogOpen] = useState(false);
   const [isStopping, setIsStopping] = useState(false);
+
+  // Resizable panel state
+  const [libraryWidth, setLibraryWidth] = useState(20); // percentage
+  const [isDraggingDivider, setIsDraggingDivider] = useState(false);
 
   // Webcam recording state (Story S10)
   const [isWebcamModalOpen, setIsWebcamModalOpen] = useState(false);
@@ -47,9 +54,72 @@ export const MainLayout: React.FC = () => {
   });
   const [exportOutputPath, setExportOutputPath] = useState<string | undefined>();
 
+  // Preset selection state (Story 14: Advanced Export Options)
+  const [isPresetSelectorOpen, setIsPresetSelectorOpen] = useState(false);
+  const [isPresetManagerOpen, setIsPresetManagerOpen] = useState(false);
+  const [presets, setPresets] = useState<ExportPreset[]>([]);
+  const [defaultPresetId, setDefaultPresetId] = useState<string | null>(null);
+  const [sourceResolution, setSourceResolution] = useState({ width: 1920, height: 1080 });
+  const [selectedPreset, setSelectedPreset] = useState<ExportPreset | null>(null);
+
   // Get session data for export
   const clips = useSessionStore((state) => state.clips);
   const timeline = useSessionStore((state) => state.timeline);
+
+  /**
+   * Load presets on component mount (Story 14: Advanced Export Options)
+   */
+  useEffect(() => {
+    const loadPresets = async () => {
+      try {
+        const result = await window.electron.invoke('export-get-presets');
+        if (result.presets) {
+          setPresets(result.presets);
+          if (result.defaultPresetId) {
+            setDefaultPresetId(result.defaultPresetId);
+          }
+        }
+      } catch (error) {
+        console.error('[MainLayout] Failed to load presets:', error);
+        // Presets will be set to empty array, which is okay
+      }
+    };
+
+    loadPresets();
+  }, []);
+
+  /**
+   * Handle divider drag to resize library/preview panels
+   */
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!isDraggingDivider) return;
+
+      const container = document.querySelector('[data-layout="main-container"]') as HTMLElement;
+      if (!container) return;
+
+      const containerRect = container.getBoundingClientRect();
+      const newWidth = ((e.clientX - containerRect.left) / containerRect.width) * 100;
+
+      // Constrain between 15% and 60%
+      if (newWidth >= 15 && newWidth <= 60) {
+        setLibraryWidth(newWidth);
+      }
+    };
+
+    const handleMouseUp = () => {
+      setIsDraggingDivider(false);
+    };
+
+    if (isDraggingDivider) {
+      document.addEventListener('mousemove', handleMouseMove);
+      document.addEventListener('mouseup', handleMouseUp);
+      return () => {
+        document.removeEventListener('mousemove', handleMouseMove);
+        document.removeEventListener('mouseup', handleMouseUp);
+      };
+    }
+  }, [isDraggingDivider]);
 
   /**
    * Handle Record Screen button click
@@ -170,11 +240,42 @@ export const MainLayout: React.FC = () => {
 
     console.log('[Export] Timeline has', timeline.clips.length, 'clips');
 
-    // Open save dialog
-    const timestamp = new Date().toISOString().replace(/[-:]/g, '').split('.')[0].replace('T', '_');
-    const defaultFilename = `Klippy_Export_${timestamp}.mp4`;
+    // Determine source resolution (Story 14: Advanced Export Options)
+    const maxResolution = timeline.clips.reduce(
+      (max, tc) => {
+        const clip = clips.find((c) => c.id === tc.clipId);
+        if (clip) {
+          return {
+            width: Math.max(max.width, clip.resolution?.width || 1920),
+            height: Math.max(max.height, clip.resolution?.height || 1080),
+          };
+        }
+        return max;
+      },
+      { width: 1920, height: 1080 }
+    );
 
-    console.log('[Export] Opening save dialog with default filename:', defaultFilename);
+    console.log('[Export] Source resolution:', maxResolution);
+    setSourceResolution(maxResolution);
+
+    // Show preset selector (Story 14: Advanced Export Options)
+    console.log('[Export] Opening preset selector');
+    setIsPresetSelectorOpen(true);
+  };
+
+  /**
+   * Handle preset selection (Story 14: Advanced Export Options)
+   */
+  const handlePresetSelected = async (preset: ExportPreset) => {
+    console.log('[Export] Preset selected:', preset.name);
+    setSelectedPreset(preset);
+    setIsPresetSelectorOpen(false);
+
+    // Now open the save dialog with preset-specific filename
+    const timestamp = new Date().toISOString().replace(/[-:]/g, '').split('.')[0].replace('T', '_');
+    const defaultFilename = `Klippy_Export_${preset.name}_${timestamp}.mp4`;
+
+    console.log('[Export] Opening save dialog with filename:', defaultFilename);
 
     try {
       const result = await window.electron.invoke('dialog:showSaveDialog', {
@@ -188,6 +289,7 @@ export const MainLayout: React.FC = () => {
       // User cancelled
       if (result.canceled) {
         console.log('[Export] User cancelled save dialog');
+        setSelectedPreset(null);
         return;
       }
 
@@ -216,13 +318,14 @@ export const MainLayout: React.FC = () => {
         totalDuration: timelineData.totalDuration,
       });
 
-      // Call export IPC handler
+      // Call export IPC handler with preset (Story 14: Advanced Export Options)
       setExportStatus('exporting');
-      console.log('[Export] Calling export-video IPC handler');
+      console.log('[Export] Calling export-video IPC handler with preset:', preset.name);
 
       const exportResult = await window.electron.invoke('export-video', {
         outputPath,
         timeline: timelineData,
+        preset, // Pass preset for resolution, bitrate, fps
       });
 
       console.log('[Export] Export result:', exportResult);
@@ -251,6 +354,81 @@ export const MainLayout: React.FC = () => {
         estimatedTimeRemaining: 0,
         errorMessage: error instanceof Error ? error.message : 'Export failed',
       });
+    }
+  };
+
+  /**
+   * Handle preset manager open (Story 14: Advanced Export Options)
+   */
+  const handleManagePresetsClick = () => {
+    console.log('[Export] Opening preset manager');
+    setIsPresetManagerOpen(true);
+  };
+
+  /**
+   * Handle preset save (Story 14: Advanced Export Options)
+   */
+  const handlePresetSave = async (preset: ExportPreset) => {
+    console.log('[Export] Saving preset:', preset.name);
+    try {
+      const result = await window.electron.invoke('export-save-custom-preset', {
+        preset,
+      });
+      return result;
+    } catch (error) {
+      console.error('[Export] Failed to save preset:', error);
+      return { success: false, error: 'Failed to save preset' };
+    }
+  };
+
+  /**
+   * Handle preset delete (Story 14: Advanced Export Options)
+   */
+  const handlePresetDelete = async (presetId: string) => {
+    console.log('[Export] Deleting preset:', presetId);
+    try {
+      const result = await window.electron.invoke('export-delete-custom-preset', {
+        presetId,
+      });
+      return result;
+    } catch (error) {
+      console.error('[Export] Failed to delete preset:', error);
+      return { success: false, error: 'Failed to delete preset' };
+    }
+  };
+
+  /**
+   * Refresh presets from main process (Story 14: Advanced Export Options)
+   */
+  const handleRefreshPresets = async () => {
+    console.log('[Export] Refreshing presets');
+    try {
+      const result = await window.electron.invoke('export-get-presets');
+      if (result.presets) {
+        setPresets(result.presets);
+        if (result.defaultPresetId) {
+          setDefaultPresetId(result.defaultPresetId);
+        }
+      }
+    } catch (error) {
+      console.error('[Export] Failed to refresh presets:', error);
+    }
+  };
+
+  /**
+   * Handle set default preset (Story 14: Advanced Export Options)
+   */
+  const handleSetDefaultPreset = async (presetId: string | null) => {
+    console.log('[Export] Setting default preset:', presetId);
+    try {
+      const result = await window.electron.invoke('export-set-default-preset', {
+        presetId,
+      });
+      if (result.success) {
+        setDefaultPresetId(presetId);
+      }
+    } catch (error) {
+      console.error('[Export] Failed to set default preset:', error);
     }
   };
 
@@ -309,7 +487,7 @@ export const MainLayout: React.FC = () => {
   return (
     <PermissionProvider>
       <DragDropZone onDrop={importVideos}>
-        <div style={styles.container}>
+        <div style={styles.container} data-layout="main-container">
         {/* Recording Indicator (shown when recording) */}
         {isRecording && <RecordingIndicator onStop={handleStopRecording} isStopping={isStopping} />}
 
@@ -360,13 +538,35 @@ export const MainLayout: React.FC = () => {
           outputPath={exportOutputPath}
         />
 
+        {/* Preset Selector Modal (Story 14: Advanced Export Options) */}
+        <PresetSelector
+          isOpen={isPresetSelectorOpen}
+          presets={presets}
+          sourceResolution={sourceResolution}
+          defaultPresetId={defaultPresetId}
+          onSelect={handlePresetSelected}
+          onCancel={() => setIsPresetSelectorOpen(false)}
+          onManagePresets={handleManagePresetsClick}
+          onSetDefault={handleSetDefaultPreset}
+        />
+
+        {/* Preset Manager Modal (Story 14: Advanced Export Options) */}
+        <PresetManager
+          isOpen={isPresetManagerOpen}
+          presets={presets}
+          onClose={() => setIsPresetManagerOpen(false)}
+          onSave={handlePresetSave}
+          onDelete={handlePresetDelete}
+          onRefresh={handleRefreshPresets}
+        />
+
         {/* Global Permission Modal */}
         <PermissionModal />
 
         {/* Top section: Library (left) + Preview (right) */}
         <div style={styles.topSection}>
-          {/* Library Panel (left, 20%) */}
-          <div style={styles.libraryWrapper}>
+          {/* Library Panel (left, resizable) */}
+          <div style={{...styles.libraryWrapper, width: `${libraryWidth}%`}}>
             <div style={styles.panelHeader}>
               <span>Library</span>
               <div style={styles.headerButtons}>
@@ -382,8 +582,18 @@ export const MainLayout: React.FC = () => {
             <Library />
           </div>
 
-          {/* Preview Panel (right, 80%) */}
-          <div style={styles.preview}>
+          {/* Resizable Divider */}
+          <div
+            style={{
+              ...styles.divider,
+              cursor: isDraggingDivider ? 'col-resize' : 'ew-resize',
+            }}
+            onMouseDown={() => setIsDraggingDivider(true)}
+            title="Drag to resize library panel"
+          />
+
+          {/* Preview Panel (right, resizable) */}
+          <div style={{...styles.preview, width: `${100 - libraryWidth}%`}}>
             <div style={styles.panelHeader}>Preview</div>
             <div style={styles.previewContent}>
               <PreviewPlayer />
@@ -423,16 +633,25 @@ const styles = {
     borderBottom: '1px solid #333',
   },
   libraryWrapper: {
-    width: '20%',
-    borderRight: '1px solid #333',
     display: 'flex',
     flexDirection: 'column' as const,
+    overflow: 'hidden',
   },
   preview: {
-    width: '80%',
     display: 'flex',
     flexDirection: 'column' as const,
     backgroundColor: '#000',
+    overflow: 'hidden',
+  },
+  divider: {
+    width: '4px',
+    backgroundColor: '#333',
+    cursor: 'ew-resize',
+    userSelect: 'none' as const,
+    transition: 'background-color 0.2s',
+    ':hover': {
+      backgroundColor: '#4a9eff',
+    },
   },
   previewContent: {
     flex: 1,
