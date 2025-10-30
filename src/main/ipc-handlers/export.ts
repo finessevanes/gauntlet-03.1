@@ -7,7 +7,7 @@ import { ipcMain, BrowserWindow } from 'electron';
 import { ChildProcess } from 'child_process';
 import * as fs from 'fs';
 import { spawnFFmpeg, spawnFFprobe, getFFmpegPath } from '../services/ffmpeg-service';
-import { Clip } from '../../types/session';
+import { Clip, TimelineClip } from '../../types/session';
 import { ExportPreset } from '../../types/export';
 import * as PresetManager from '../services/preset-manager';
 
@@ -17,9 +17,10 @@ import * as PresetManager from '../services/preset-manager';
 interface ExportRequest {
   outputPath: string;
   timeline: {
-    clips: Clip[];
+    clips: TimelineClip[];
     totalDuration: number;
   };
+  libraryClips: Clip[]; // Library clips referenced by timeline clips
   preset?: ExportPreset; // Story 14: Advanced Export Options
 }
 
@@ -96,10 +97,23 @@ async function handleExportVideo(
   });
 
   try {
-    const { outputPath, timeline } = request;
+    const { outputPath, timeline, libraryClips } = request;
+
+    // Convert timeline clips to effective clips with trim points
+    const effectiveClips: Clip[] = timeline.clips.map(timelineClip => {
+      const libraryClip = libraryClips.find(c => c.id === timelineClip.clipId);
+      if (!libraryClip) {
+        throw new Error(`Library clip not found: ${timelineClip.clipId}`);
+      }
+      return {
+        ...libraryClip,
+        inPoint: timelineClip.inPoint,
+        outPoint: timelineClip.outPoint,
+      };
+    });
 
     // Validate timeline and source files
-    const validation = await validateTimeline(timeline.clips);
+    const validation = await validateTimeline(effectiveClips);
     if (!validation.valid) {
       return {
         success: false,
@@ -110,7 +124,7 @@ async function handleExportVideo(
     // Probe all source files in parallel to get metadata
     const probeResults: VideoProbeResult[] = [];
     try {
-      const probePromises = timeline.clips.map(clip =>
+      const probePromises = effectiveClips.map(clip =>
         probeSourceFile(clip.filePath).catch(error => ({
           error: true,
           clip,
@@ -161,7 +175,7 @@ async function handleExportVideo(
 
     // Build FFmpeg command
     const ffmpegArgs = buildFFmpegCommand(
-      timeline.clips,
+      effectiveClips,
       outputPath,
       outputResolution,
       probeResults,
@@ -172,7 +186,7 @@ async function handleExportVideo(
     // Log command for debugging
     console.log('[Export] FFmpeg command:', getFFmpegPath(), ffmpegArgs.join(' '));
     console.log('[Export] Output path:', outputPath);
-    console.log('[Export] Timeline clips:', timeline.clips.length);
+    console.log('[Export] Timeline clips:', effectiveClips.length);
     console.log('[Export] Total duration:', timeline.totalDuration);
 
     // Spawn FFmpeg process
@@ -319,8 +333,8 @@ function buildFFmpegCommand(
   outputPath: string,
   outputResolution: { width: number; height: number },
   probeResults: VideoProbeResult[],
-  outputFrameRate: number = 30,
-  outputBitrate: string = '8M'
+  outputFrameRate = 30,
+  outputBitrate = '8M'
 ): string[] {
   const args: string[] = [];
 

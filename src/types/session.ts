@@ -30,20 +30,16 @@ export interface Clip {
   isPiPRecording?: boolean;         // Flag for PiP composite videos
 }
 
-export interface TimelineClipTrimOverride {
-  instanceId: string;         // Unique ID matching the TimelineClip.instanceId
-  inPoint: number;            // Instance-specific trim start point in seconds
-  outPoint: number;           // Instance-specific trim end point in seconds
-}
-
 export interface TimelineClip {
   instanceId: string;         // Unique ID for this timeline instance (UUID)
   clipId: string;             // Reference to the library clip
+  inPoint: number;            // Instance-specific trim start point in seconds
+  outPoint: number;           // Instance-specific trim end point in seconds
+  startTime: number;          // Position on timeline in seconds
 }
 
 export interface Timeline {
   clips: TimelineClip[];              // Array of timeline clip instances in sequence
-  trimOverrides?: TimelineClipTrimOverride[];  // Per-instance trim point overrides (optional for backward compat)
   duration: number;                   // Total timeline duration (sum of trimmed clips)
 }
 

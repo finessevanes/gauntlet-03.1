@@ -321,11 +321,9 @@ export const MainLayout: React.FC = () => {
       });
       setIsExportModalOpen(true);
 
-      // Build timeline data with full clip details
+      // Build timeline data with timeline clips and library clips
       const timelineData = {
-        clips: timeline.clips
-          .map((tc) => clips.find((c) => c.id === tc.clipId))
-          .filter((c) => c !== undefined),
+        clips: timeline.clips,
         totalDuration: timeline.duration,
       };
 
@@ -341,6 +339,7 @@ export const MainLayout: React.FC = () => {
       const exportResult = await window.electron.invoke('export-video', {
         outputPath,
         timeline: timelineData,
+        libraryClips: clips, // Pass library clips for reference
         preset, // Pass preset for resolution, bitrate, fps
       });
 

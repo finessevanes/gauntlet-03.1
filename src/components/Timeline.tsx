@@ -58,70 +58,31 @@ export const Timeline: React.FC = () => {
   // Trim functionality (Story 5)
   const pixelsPerSecond = getPixelsPerSecond(zoomLevel);
 
-  // Trim completion handler - uses per-instance trim overrides
+  // Trim completion handler - updates timeline clip directly
   const handleTrimComplete = useCallback(async (clipId: string, instanceId: string, inPoint: number, outPoint: number) => {
     console.log('[Timeline] Trim complete, calling IPC:', { clipId: clipId.substring(0, 8), instanceId: instanceId.substring(0, 8), inPoint, outPoint });
 
     try {
       const result = await window.electron.trim.trimClip(clipId, instanceId, inPoint, outPoint);
 
-      if (result.success && result.override) {
-        // Get current trim overrides or initialize empty array
-        const currentOverrides = timeline.trimOverrides || [];
+      if (result.success && result.timelineClip) {
+        // Find and update the timeline clip with new trim points
+        const updatedClips = timeline.clips.map(tc => 
+          tc.instanceId === instanceId ? result.timelineClip : tc
+        );
 
-        // Build new overrides array - replace existing override for this instance or add new one
-        const updatedOverrides = currentOverrides.filter(o => o.instanceId !== instanceId);
-        updatedOverrides.push(result.override);
-
-        console.log('[Timeline] Updated overrides:', {
-          instanceId: instanceId.substring(0, 8),
-          totalOverrides: updatedOverrides.length,
-          allOverrideIds: updatedOverrides.map(o => o.instanceId.substring(0, 8)),
-        });
-
-        // Recalculate timeline duration using updated overrides
-        const newDuration = timeline.clips.reduce((total, tc) => {
-          const clip = clips.find(c => c.id === tc.clipId);
-          if (!clip) return total;
-
-          // Get trim points: use override if exists, otherwise use clip defaults
-          const override = updatedOverrides.find(o => o.instanceId === tc.instanceId);
-          const clipInPoint = override?.inPoint ?? clip.inPoint ?? 0;
-          const clipOutPoint = override?.outPoint ?? clip.outPoint ?? clip.duration;
-
-          const clipDuration = clipOutPoint - clipInPoint;
-          console.log('[Timeline] Duration calc:', {
-            instanceId: tc.instanceId.substring(0, 8),
-            hasOverride: !!override,
-            clipInPoint,
-            clipOutPoint,
-            clipDuration,
-          });
-
-          return total + clipDuration;
+        // Recalculate timeline duration using updated trim points
+        const newDuration = updatedClips.reduce((total, tc) => {
+          return total + (tc.outPoint - tc.inPoint);
         }, 0);
 
-        // Update timeline with new trimOverrides
+        // Update timeline with new clips and duration
         const updatedTimeline = {
-          ...timeline,
-          trimOverrides: updatedOverrides,
+          clips: updatedClips,
           duration: newDuration,
         };
 
         updateTimeline(updatedTimeline);
-
-        // Persist the updated session to disk (critical for persistence across app restarts)
-        const session = {
-          version: '1.0.0',
-          clips: clips,
-          timeline: updatedTimeline,
-          zoomLevel: zoomLevel,
-          playheadPosition: playheadPosition,
-          scrollPosition: scrollPosition,
-          lastModified: Date.now(),
-        };
-
-        await window.electron.timeline.saveSession(session);
 
         console.log('[Timeline] Trim applied successfully, new duration:', newDuration);
       } else {
@@ -130,7 +91,7 @@ export const Timeline: React.FC = () => {
     } catch (error) {
       console.error('[Timeline] Error trimming clip:', error);
     }
-  }, [clips, timeline, updateTimeline, zoomLevel, playheadPosition, scrollPosition]);
+  }, [timeline, updateTimeline]);
 
   // Initialize trim drag hook
   const trimDrag = useTrimDrag(pixelsPerSecond, handleTrimComplete);
@@ -149,39 +110,23 @@ export const Timeline: React.FC = () => {
     const clip = clips.find(c => c.id === clipId);
     if (!clip) return;
 
-    const trimOverrides = timeline.trimOverrides || [];
-
-    // Get the trim override for THIS instance (if it exists)
-    const thisInstanceOverride = trimOverrides.find(o => o.instanceId === instanceId);
-    const effectiveClip = thisInstanceOverride
-      ? { ...clip, inPoint: thisInstanceOverride.inPoint, outPoint: thisInstanceOverride.outPoint }
+    // Find the timeline clip to get its trim points
+    const timelineClip = timeline.clips.find(tc => tc.instanceId === instanceId);
+    const effectiveClip = timelineClip
+      ? { ...clip, inPoint: timelineClip.inPoint, outPoint: timelineClip.outPoint }
       : clip;
 
     console.log('[Timeline] Trim start:', {
       clipId: clipId.substring(0, 8),
       instanceId: instanceId.substring(0, 8),
       edge,
-      hasOverride: !!thisInstanceOverride,
       effectiveInPoint: effectiveClip.inPoint,
       effectiveOutPoint: effectiveClip.outPoint,
-      currentOverrides: trimOverrides.map(o => ({ id: o.instanceId.substring(0, 8), in: o.inPoint, out: o.outPoint })),
     });
 
-    // Find the start time of this clip on the timeline (considering trim overrides)
-    let startTime = 0;
-    for (const timelineClip of timeline.clips) {
-      const tcClip = clips.find(c => c.id === timelineClip.clipId);
-      if (tcClip) {
-        if (timelineClip.instanceId === instanceId) break; // Stop at this instance
-
-        // Get effective trim points for this timeline instance
-        const override = trimOverrides.find(o => o.instanceId === timelineClip.instanceId);
-        const inPoint = override?.inPoint ?? tcClip.inPoint ?? 0;
-        const outPoint = override?.outPoint ?? tcClip.outPoint ?? tcClip.duration;
-
-        startTime += outPoint - inPoint;
-      }
-    }
+    // Find the start time of this clip on the timeline
+    const currentTimelineClip = timeline.clips.find(tc => tc.instanceId === instanceId);
+    const startTime = currentTimelineClip?.startTime || 0;
 
     console.log('[Timeline] Trim start time calculated:', { instanceId: instanceId.substring(0, 8), startTime });
 
@@ -231,23 +176,6 @@ export const Timeline: React.FC = () => {
     }
   }, [timeline.clips, clips]);
 
-  // Calculate clip start times (cumulative durations)
-  const clipStartTimes = useCallback(() => {
-    const startTimes: Record<string, number> = {};
-    let cumulativeTime = 0;
-
-    for (const timelineClip of timeline.clips) {
-      const clip = clips.find((c) => c.id === timelineClip.clipId);
-      if (clip) {
-        startTimes[timelineClip.instanceId] = cumulativeTime;
-        cumulativeTime += clip.outPoint - clip.inPoint;
-      }
-    }
-
-    return startTimes;
-  }, [timeline.clips, clips]);
-
-  const startTimes = clipStartTimes();
 
   // Handle drag over (Library clips being dragged)
   const handleDragOver = (e: React.DragEvent) => {
@@ -410,7 +338,7 @@ export const Timeline: React.FC = () => {
       const result = await window.electron.timeline.reorderClip(instanceId, newPosition);
 
       if (result.success && result.updatedTimeline) {
-        updateTimeline({ clips: result.updatedTimeline, duration: timeline.duration });
+        updateTimeline({ clips: result.updatedTimeline, duration: result.duration || timeline.duration });
         console.log('[Timeline] Clip reordered successfully, timeline now:',
           result.updatedTimeline.map((tc, i) => `${i}:${clips.find(c => c.id === tc.clipId)?.filename.substring(0, 10)}`));
       } else {
@@ -641,17 +569,12 @@ export const Timeline: React.FC = () => {
                     } else if (dropTargetIndex >= timeline.clips.length) {
                       // Insert at end
                       const lastTimelineClip = timeline.clips[timeline.clips.length - 1];
-                      const lastClip = clips.find(c => c.id === lastTimelineClip.clipId);
-                      if (lastClip) {
-                        const lastClipStart = startTimes[lastTimelineClip.instanceId] || 0;
-                        const lastClipDuration = lastClip.outPoint - lastClip.inPoint;
-                        return `${TIMELINE_PADDING + (lastClipStart + lastClipDuration) * pixelsPerSecond}px`;
-                      }
-                      return `${TIMELINE_PADDING}px`;
+                      const lastClipEnd = lastTimelineClip.startTime + (lastTimelineClip.outPoint - lastTimelineClip.inPoint);
+                      return `${TIMELINE_PADDING + lastClipEnd * pixelsPerSecond}px`;
                     } else {
                       // Insert between clips - show at start of clip at dropTargetIndex
                       const targetTimelineClip = timeline.clips[dropTargetIndex];
-                      return `${TIMELINE_PADDING + (startTimes[targetTimelineClip.instanceId] || 0) * pixelsPerSecond}px`;
+                      return `${TIMELINE_PADDING + targetTimelineClip.startTime * pixelsPerSecond}px`;
                     }
                   })(),
                   top: '24px',
@@ -670,11 +593,12 @@ export const Timeline: React.FC = () => {
               const clip = clips.find((c) => c.id === timelineClip.clipId);
               if (!clip) return null;
 
-              // Apply trim override if it exists, otherwise use clip defaults
-              const trimOverride = timeline.trimOverrides?.find(o => o.instanceId === timelineClip.instanceId);
-              const effectiveClip = trimOverride
-                ? { ...clip, inPoint: trimOverride.inPoint, outPoint: trimOverride.outPoint }
-                : clip;
+              // Use timeline clip's trim points directly
+              const effectiveClip = {
+                ...clip,
+                inPoint: timelineClip.inPoint,
+                outPoint: timelineClip.outPoint,
+              };
 
               const isClipSelected = selectedClipId === timelineClip.instanceId && selectedClipSource === 'timeline';
 
@@ -684,7 +608,7 @@ export const Timeline: React.FC = () => {
 
               if (isBeingTrimmed && trimDrag.draggedInPoint !== null && trimDrag.draggedOutPoint !== null) {
                 // Calculate the current dragged clip's range on the timeline
-                const draggedClipStart = startTimes[timelineClip.instanceId] || 0;
+                const draggedClipStart = timelineClip.startTime;
                 const draggedClipEnd = draggedClipStart + (trimDrag.draggedOutPoint - trimDrag.draggedInPoint);
 
                 // Check if it overlaps with any other clip
@@ -695,13 +619,14 @@ export const Timeline: React.FC = () => {
                   const otherClip = clips.find((c) => c.id === otherTimelineClip.clipId);
                   if (!otherClip) continue;
 
-                  // Apply override to other clip too
-                  const otherTrimOverride = timeline.trimOverrides?.find(o => o.instanceId === otherTimelineClip.instanceId);
-                  const effectiveOtherClip = otherTrimOverride
-                    ? { ...otherClip, inPoint: otherTrimOverride.inPoint, outPoint: otherTrimOverride.outPoint }
-                    : otherClip;
+                  // Use other timeline clip's trim points directly
+                  const effectiveOtherClip = {
+                    ...otherClip,
+                    inPoint: otherTimelineClip.inPoint,
+                    outPoint: otherTimelineClip.outPoint,
+                  };
 
-                  const otherClipStart = startTimes[otherTimelineClip.instanceId] || 0;
+                  const otherClipStart = otherTimelineClip.startTime;
                   const otherClipEnd = otherClipStart + (effectiveOtherClip.outPoint - effectiveOtherClip.inPoint);
 
                   // Check for overlap: clip1.start < clip2.end AND clip1.end > clip2.start
@@ -719,7 +644,7 @@ export const Timeline: React.FC = () => {
                   instanceId={timelineClip.instanceId}
                   index={index}
                   zoomLevel={zoomLevel}
-                  startTime={startTimes[timelineClip.instanceId] || 0}
+                  startTime={timelineClip.startTime}
                   padding={TIMELINE_PADDING}
                   onReorder={handleReorder}
                   onDelete={handleDelete}

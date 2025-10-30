@@ -76,20 +76,9 @@ export function registerTrimHandlers() {
         };
       }
 
-      // Initialize trimOverrides array if it doesn't exist
-      if (!session.timeline.trimOverrides) {
-        session.timeline.trimOverrides = [];
-      }
-
-      // Find or create override for this instance
-      let override = session.timeline.trimOverrides.find(o => o.instanceId === instanceId);
-      if (!override) {
-        override = { instanceId, inPoint: correctedInPoint, outPoint: correctedOutPoint };
-        session.timeline.trimOverrides.push(override);
-      } else {
-        override.inPoint = correctedInPoint;
-        override.outPoint = correctedOutPoint;
-      }
+      // Update the timeline clip directly with new trim points
+      timelineClip.inPoint = correctedInPoint;
+      timelineClip.outPoint = correctedOutPoint;
 
       console.log('[Trim IPC] Clip instance trimmed successfully:', {
         clipId: clipId.substring(0, 8),
@@ -113,7 +102,7 @@ export function registerTrimHandlers() {
       return {
         success: true,
         clip,
-        override,
+        timelineClip,
       };
     } catch (error) {
       console.error('[Trim IPC] Error trimming clip:', error);
@@ -160,13 +149,9 @@ export function registerTrimHandlers() {
         };
       }
 
-      // Initialize trimOverrides array if it doesn't exist
-      if (!session.timeline.trimOverrides) {
-        session.timeline.trimOverrides = [];
-      }
-
-      // Remove override for this instance (will revert to clip defaults)
-      session.timeline.trimOverrides = session.timeline.trimOverrides.filter(o => o.instanceId !== instanceId);
+      // Reset timeline clip to use clip's default trim points
+      timelineClip.inPoint = clip.inPoint;
+      timelineClip.outPoint = clip.outPoint;
 
       console.log('[Trim IPC] Clip instance trim reset:', {
         clipId: clipId.substring(0, 8),
