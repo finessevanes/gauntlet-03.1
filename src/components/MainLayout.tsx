@@ -621,7 +621,7 @@ export const MainLayout: React.FC = () => {
         </div>
 
         {/* Bottom Panel - Timeline */}
-        <div className="h-52 bg-dark-900 border-t border-dark-700 flex flex-col">
+        <div className="h-80 bg-dark-900 border-t border-dark-700 flex flex-col">
           <div className="px-4 py-3 bg-dark-700 border-b border-dark-700 text-xs font-bold uppercase text-dark-400 flex justify-between items-center">
             <span>Timeline</span>
             <button onClick={handleExportClick} className="px-4 py-2 text-xs font-bold bg-blue-400 text-white border-0 rounded cursor-pointer transition-colors duration-200 hover:bg-blue-500 uppercase">

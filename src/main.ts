@@ -10,6 +10,7 @@ import { registerTrimHandlers } from './main/ipc-handlers/trim';
 import { registerExportHandlers } from './main/ipc-handlers/export';
 import { registerRecordingHandlers, hasPiPRecordingActive } from './main/ipc-handlers/recording';
 import { registerAIHandlers } from './main/ipc-handlers/ai';
+import { registerKeyboardHandlers } from './main/ipc-handlers/keyboard'; // S13: Split & Advanced Trim
 import { cleanupAllActiveSessions, hasActiveRecordingSessions } from './main/services/screenRecordingService';
 
 // Load environment variables from .env file
@@ -104,6 +105,7 @@ app.on('ready', () => {
   registerExportHandlers();
   registerRecordingHandlers(); // S9: Screen Recording
   registerAIHandlers(); // S9: Teleprompter
+  registerKeyboardHandlers(); // S13: Split & Advanced Trim
 
   // Create the main window
   createWindow();

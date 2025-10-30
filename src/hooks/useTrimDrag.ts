@@ -34,6 +34,7 @@ interface UseTrimDragResult {
   checkEdgeHover: (clipId: string, mouseX: number, clipRect: DOMRect) => 'left' | 'right' | null;
   startDrag: (clipId: string, instanceId: string, edge: 'left' | 'right', e: React.MouseEvent, clip: Clip, startTime: number) => void;
   endDrag: () => void;
+  clearDraggedValues: () => void; // Clear optimistic UI values after backend update
 }
 
 export function useTrimDrag(
@@ -75,7 +76,10 @@ export function useTrimDrag(
     clip: Clip,
     startTime: number
   ) => {
-    console.log('[useTrimDrag] Starting drag:', { clipId: clipId.substring(0, 8), instanceId: instanceId.substring(0, 8), edge, clipDuration: clip.duration });
+    // Clear any previous dragged values from other clips before starting new drag
+    // This ensures clean state when switching between clips
+    setDraggedInPoint(null);
+    setDraggedOutPoint(null);
 
     const dragState: TrimDragState = {
       clipId,
@@ -91,6 +95,8 @@ export function useTrimDrag(
     dragStateRef.current = dragState;
     clipDurationRef.current = clip.duration; // Store clip duration for validation
     setTooltipPosition({ x: e.clientX, y: e.clientY });
+
+    // Set initial dragged values to current clip state
     setDraggedInPoint(clip.inPoint);
     setDraggedOutPoint(clip.outPoint);
   }, []);
@@ -100,21 +106,22 @@ export function useTrimDrag(
     if (dragStateRef.current && onTrimComplete && (draggedInPoint !== null && draggedOutPoint !== null)) {
       const { clipId, instanceId } = dragStateRef.current;
 
-      console.log('[useTrimDrag] Ending drag, calling onTrimComplete:', {
-        clipId: clipId.substring(0, 8),
-        instanceId: instanceId.substring(0, 8),
-        inPoint: draggedInPoint,
-        outPoint: draggedOutPoint,
-      });
-
       onTrimComplete(clipId, instanceId, draggedInPoint, draggedOutPoint);
     }
 
+    // Only clear the dragging state, but keep draggedInPoint/draggedOutPoint
+    // so the optimistic UI remains until the backend update completes
     setDragging(null);
     dragStateRef.current = null;
+    // Don't clear draggedInPoint/draggedOutPoint here - let them persist
+    // They'll be cleared when a new drag starts or when clearDraggedValues() is called
+  }, [draggedInPoint, draggedOutPoint, onTrimComplete]);
+
+  // Clear dragged values (called after backend update completes)
+  const clearDraggedValues = useCallback(() => {
     setDraggedInPoint(null);
     setDraggedOutPoint(null);
-  }, [draggedInPoint, draggedOutPoint, onTrimComplete]);
+  }, []);
 
   // Handle mouse move during drag
   useEffect(() => {
@@ -129,14 +136,6 @@ export function useTrimDrag(
       // Convert to time delta
       const timeDelta = deltaX / pixelsPerSecond;
 
-      console.log('[useTrimDrag] Mouse move:', {
-        edge,
-        deltaX,
-        timeDelta,
-        startInPoint,
-        startOutPoint,
-      });
-
       // Calculate new trim points based on edge
       let newInPoint = startInPoint;
       let newOutPoint = startOutPoint;
@@ -146,25 +145,17 @@ export function useTrimDrag(
         newInPoint = startInPoint + timeDelta;
         newOutPoint = startOutPoint; // Keep outPoint fixed when dragging left edge
 
-        console.log('[useTrimDrag] Left edge - before clamp:', { newInPoint, newOutPoint, clipDuration: clipDurationRef.current });
-
         // Clamp to valid range: [0, startOutPoint - MIN_DURATION]
         // Ensures inPoint never goes below 0 (start of clip)
         newInPoint = Math.max(0, Math.min(startOutPoint - MIN_DURATION, newInPoint));
-
-        console.log('[useTrimDrag] Left edge - after clamp:', { newInPoint, newOutPoint });
       } else {
         // Dragging right edge (adjusting outPoint, inPoint stays fixed)
         newInPoint = startInPoint; // Keep inPoint fixed when dragging right edge
         newOutPoint = startOutPoint + timeDelta;
 
-        console.log('[useTrimDrag] Right edge - before clamp:', { newInPoint, newOutPoint, clipDuration: clipDurationRef.current });
-
         // Clamp to valid range: [startInPoint + MIN_DURATION, clip.duration]
         // Auto-correct to full duration if exceeding clip duration
         newOutPoint = Math.max(startInPoint + MIN_DURATION, Math.min(clipDurationRef.current, newOutPoint));
-
-        console.log('[useTrimDrag] Right edge - after clamp:', { newInPoint, newOutPoint });
       }
 
       // Update tooltip position
@@ -198,5 +189,6 @@ export function useTrimDrag(
     checkEdgeHover,
     startDrag,
     endDrag,
+    clearDraggedValues,
   };
 }
