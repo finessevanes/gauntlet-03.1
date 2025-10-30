@@ -28,7 +28,6 @@
     "@electron-forge/plugin-vite": "^7.10.2",
     "@electron/fuses": "^1.8.0",
     "@tailwindcss/postcss": "^4.1.16",
-    "@types/electron-squirrel-startup": "^1.0.2",
     "@types/react": "^19.2.2",
     "@types/react-dom": "^19.2.2",
     "@typescript-eslint/eslint-plugin": "^5.62.0",
@@ -43,7 +42,6 @@
     "vite": "^5.4.21"
   },
   "dependencies": {
-    "@types/uuid": "^10.0.0",
     "dotenv": "^17.2.3",
     "electron-squirrel-startup": "^1.0.1",
     "ffmpeg-static": "^5.2.0",
