@@ -39,6 +39,7 @@ export const Timeline: React.FC = () => {
   const [isDraggingOver, setIsDraggingOver] = useState(false);
   const [draggedClipId, setDraggedClipId] = useState<string | null>(null);
   const [dropTargetIndex, setDropTargetIndex] = useState<number | null>(null);
+  const [isDraggingLibraryClip, setIsDraggingLibraryClip] = useState(false);
   const [hoveredEdge, setHoveredEdge] = useState<{ instanceId: string; edge: 'left' | 'right' } | null>(null);
   const [splitError, setSplitError] = useState<string | null>(null); // S13: Split error feedback
   const [splitInProgress, setSplitInProgress] = useState(false); // S13: Split operation in progress
@@ -63,38 +64,49 @@ export const Timeline: React.FC = () => {
   const pixelsPerSecond = getPixelsPerSecond(zoomLevel);
 
   // Initialize trim drag hook (must be before handleTrimComplete to access clearDraggedValues)
-  const trimDrag = useTrimDrag(pixelsPerSecond, async (clipId: string, instanceId: string, inPoint: number, outPoint: number) => {
-    try {
-      const result = await window.electron.trim.trimClip(clipId, instanceId, inPoint, outPoint);
+  const trimDrag = useTrimDrag(pixelsPerSecond, (clipId: string, instanceId: string, inPoint: number, outPoint: number) => {
+    // OPTIMISTIC UPDATE: Immediately update timeline state when drag ends
+    // This matches CapCut behavior - trim is committed immediately, not after backend confirmation
 
-      if (result.success && result.timelineClip) {
-        // Find and update the timeline clip with new trim points
-        const updatedClips = timeline.clips.map(tc =>
-          tc.instanceId === instanceId ? result.timelineClip : tc
-        );
-
-        // Recalculate timeline duration using updated trim points
-        const newDuration = updatedClips.reduce((total, tc) => {
-          return total + (tc.outPoint - tc.inPoint);
-        }, 0);
-
-        // Update timeline with new clips and duration
-        const updatedTimeline = {
-          clips: updatedClips,
-          duration: newDuration,
-        };
-
-        updateTimeline(updatedTimeline);
-
-        // Clear optimistic UI values now that backend has updated
-        // This prevents the old dragged values from persisting on screen
-        trimDrag.clearDraggedValues();
-      } else {
-        console.error('[Timeline] Trim failed:', result.error);
+    // Find the timeline clip and update it
+    const updatedClips = timeline.clips.map(tc => {
+      if (tc.instanceId === instanceId) {
+        return { ...tc, inPoint, outPoint };
       }
-    } catch (error) {
-      console.error('[Timeline] Error trimming clip:', error);
-    }
+      return tc;
+    });
+
+    // Recalculate all startTimes (gap-filling) - same as backend does
+    let currentTime = 0;
+    updatedClips.forEach(tc => {
+      tc.startTime = currentTime;
+      currentTime += (tc.outPoint - tc.inPoint);
+    });
+
+    // Recalculate duration
+    const newDuration = updatedClips.reduce((total, tc) => {
+      return total + (tc.outPoint - tc.inPoint);
+    }, 0);
+
+    // Update timeline state immediately (before backend responds)
+    const updatedTimeline = {
+      clips: updatedClips,
+      duration: newDuration,
+    };
+
+    updateTimeline(updatedTimeline);
+    trimDrag.clearDraggedValues(); // Clear optimistic UI values since we've committed to timeline state
+
+    // Persist to backend (fire and forget - UI is already committed)
+    window.electron.trim.trimClip(clipId, instanceId, inPoint, outPoint)
+      .then(result => {
+        if (!result.success) {
+          // TODO: Handle backend failure - revert local changes or show error
+        }
+      })
+      .catch(error => {
+        // TODO: Handle backend error - revert local changes or show error
+      });
   });
 
   // Handle edge hover change
@@ -224,20 +236,69 @@ export const Timeline: React.FC = () => {
   }, [timeline.clips, clips]);
 
 
-  // Handle drag over (Library clips being dragged)
+  // Handle drag over (Library clips or reordering timeline clips)
   const handleDragOver = (e: React.DragEvent) => {
     // Check if it's a clip from Library
     const hasClipId = e.dataTransfer.types.includes('clipid');
 
-    if (hasClipId) {
+    // For reorder drags, we need to update dropTargetIndex based on cursor position
+    // since the drag might be over empty space (not over a TimelineClip element)
+    const isReorderDrag = draggedClipId !== null;
+
+    if (hasClipId || isReorderDrag) {
       e.preventDefault();
-      e.dataTransfer.dropEffect = 'copy';
+      e.dataTransfer.dropEffect = hasClipId ? 'copy' : 'move';
       setIsDraggingOver(true);
+
+      // Track if this is a library clip drag (for drag overlay visual)
+      if (hasClipId) {
+        setIsDraggingLibraryClip(true);
+      }
+
+      // Calculate drop position for reorder drags over background
+      if (isReorderDrag && !trackRef.current) {
+        return;
+      }
+
+      if (isReorderDrag && trackRef.current) {
+        const trackRect = trackRef.current.getBoundingClientRect();
+        const dragX = e.clientX - trackRect.left + trackRef.current.scrollLeft;
+
+        let targetPosition = timeline.clips.length; // Default to end
+        let cumulativeTime = 0;
+
+        for (let i = 0; i < timeline.clips.length; i++) {
+          const tc = timeline.clips[i];
+          const clipDuration = tc.outPoint - tc.inPoint;
+          const clipPixelWidth = clipDuration * pixelsPerSecond;
+          const clipStartPixel = TIMELINE_PADDING + cumulativeTime * pixelsPerSecond;
+          const clipMiddle = clipStartPixel + clipPixelWidth / 2;
+
+          if (dragX < clipMiddle) {
+            targetPosition = i;
+            break;
+          }
+
+          cumulativeTime += clipDuration;
+        }
+
+        // Calculate final position (accounting for where the dragged clip will be removed from)
+        const draggedClipIndex = timeline.clips.findIndex(tc => tc.instanceId === draggedClipId);
+        const finalPosition = targetPosition > draggedClipIndex ? targetPosition - 1 : targetPosition;
+
+        // Only update if this is a different position
+        if (finalPosition !== draggedClipIndex) {
+          setDropTargetIndex(targetPosition);
+        } else {
+          setDropTargetIndex(null);
+        }
+      }
     }
   };
 
   const handleDragLeave = () => {
     setIsDraggingOver(false);
+    setIsDraggingLibraryClip(false);
   };
 
   // Handle drop (add clip to timeline at end)
@@ -245,20 +306,21 @@ export const Timeline: React.FC = () => {
     e.preventDefault();
     e.stopPropagation();
     setIsDraggingOver(false);
+    setIsDraggingLibraryClip(false);
 
     const clipId = e.dataTransfer.getData('clipId');
     const timelineClipId = e.dataTransfer.getData('timelineClipId');
     const type = e.dataTransfer.getData('type');
 
-    // Handle timeline clip reorder to end
+    // Handle timeline clip reorders - use the dropTargetIndex (where the blue indicator is)
     if (type === 'reorder' && timelineClipId) {
-      const currentPosition = timeline.clips.findIndex(tc => tc.instanceId === timelineClipId);
-      const lastPosition = timeline.clips.length - 1;
-
-      if (currentPosition !== lastPosition) {
-        await handleReorder(timelineClipId, lastPosition);
+      // If dropTargetIndex is set, use it (drop landed on Timeline background with indicator)
+      if (dropTargetIndex !== null) {
+        await handleReorder(timelineClipId, dropTargetIndex);
+        return;
+      } else {
+        return;
       }
-      return;
     }
 
     // Handle Library clips
@@ -558,14 +620,14 @@ export const Timeline: React.FC = () => {
         >
         {/* Empty State */}
         {timeline.clips.length === 0 && (
-          <div style={{ ...styles.emptyState, opacity: isDraggingOver ? 0.3 : 1 }}>
+          <div style={{ ...styles.emptyState, opacity: isDraggingLibraryClip ? 0.3 : 1 }}>
             <span style={styles.emptyIcon}>🎬</span>
             <p style={styles.emptyText}>Drag clips here to start editing</p>
           </div>
         )}
 
         {/* Drag Over Highlight */}
-        {isDraggingOver && (
+        {isDraggingLibraryClip && (
           <div style={styles.dragOverlay}>
             <span style={styles.dragOverlayText}>Drop clip to add to timeline</span>
           </div>
@@ -586,8 +648,12 @@ export const Timeline: React.FC = () => {
               padding={TIMELINE_PADDING}
             />
 
-            {/* Drop Indicator - Render once at the calculated position */}
-            {dropTargetIndex !== null && (
+            {/* Drop Indicator - Render once at the calculated position (show for library clips OR reorder drags) */}
+            {(() => {
+              const isReorderDrag = draggedClipId !== null;
+              const shouldRender = (isDraggingLibraryClip || isReorderDrag) && dropTargetIndex !== null;
+              return shouldRender;
+            })() && (
               <div
                 style={{
                   position: 'absolute' as const,

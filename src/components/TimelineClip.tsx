@@ -241,7 +241,15 @@ export const TimelineClip: React.FC<TimelineClipProps> = ({
 
       // If cursor is in left half, show indicator before this clip (index)
       // If cursor is in right half, show indicator after this clip (index + 1)
-      const dropIndex = mouseX < clipMiddle ? index : index + 1;
+      // For reorder: if dragging backward (right to left), prioritize left half for inserting before
+      let dropIndex: number;
+      if (isReorderDrag && draggedClipIndex !== null && draggedClipIndex > index) {
+        // Dragging backward: use a lower threshold for left half to make it easier to drop before
+        dropIndex = mouseX < clipMiddle * 0.7 ? index : index + 1;
+      } else {
+        // Normal drop or dragging forward: use standard midpoint
+        dropIndex = mouseX < clipMiddle ? index : index + 1;
+      }
 
       onDragEnter(dropIndex);
     }
@@ -265,7 +273,15 @@ export const TimelineClip: React.FC<TimelineClipProps> = ({
 
     // If cursor is in left half, insert before this clip (index)
     // If cursor is in right half, insert after this clip (index + 1)
-    const dropIndex = mouseX < clipMiddle ? index : index + 1;
+    // For reorder: if dragging backward (right to left), prioritize left half for inserting before
+    let dropIndex: number;
+    if (type === 'reorder' && draggedClipIndex !== null && draggedClipIndex > index) {
+      // Dragging backward: use a lower threshold for left half to make it easier to drop before
+      dropIndex = mouseX < clipMiddle * 0.7 ? index : index + 1;
+    } else {
+      // Normal drop or dragging forward: use standard midpoint
+      dropIndex = mouseX < clipMiddle ? index : index + 1;
+    }
 
     // Handle timeline clip reordering
     if (type === 'reorder' && timelineClipId && timelineClipId !== instanceId) {
