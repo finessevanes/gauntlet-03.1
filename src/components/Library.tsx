@@ -209,7 +209,7 @@ const styles = {
   container: {
     width: '100%',
     height: '100%',
-    backgroundColor: '#1a1a1a',
+    backgroundColor: '#1e1e1e',
     padding: '16px',
     overflowY: 'auto' as const,
     overflowX: 'hidden' as const,
@@ -248,8 +248,10 @@ const styles = {
   clipGrid: {
     display: 'grid',
     gridTemplateColumns: 'repeat(2, 1fr)',
-    gap: '16px',
+    gap: '0 12px', // No vertical gap, only horizontal gap between columns
     flex: 1,
+    padding: '16px',
+    alignItems: 'start', // Align items to start to prevent stretching
   },
   confirmDialog: {
     position: 'fixed' as const,

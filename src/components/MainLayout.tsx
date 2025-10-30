@@ -579,12 +579,13 @@ export const MainLayout: React.FC = () => {
         {/* Global Permission Modal */}
         <PermissionModal />
 
-        {/* Top section: Library (left) + Preview (right) */}
-        <div style={styles.topSection}>
-          {/* Library Panel (left, resizable) */}
-          <div style={{...styles.libraryWrapper, width: `${libraryWidth}%`}}>
+
+        {/* Main Content Area */}
+        <div style={styles.mainContent}>
+          {/* Left Panel - Media Browser */}
+          <div style={styles.leftPanel}>
             <div style={styles.panelHeader}>
-              <span>Library</span>
+              <span>Media Browser</span>
               <div style={styles.headerButtons}>
                 <RecordingMenu
                   disabled={isRecording}
@@ -598,27 +599,18 @@ export const MainLayout: React.FC = () => {
             <Library />
           </div>
 
-          {/* Resizable Divider */}
-          <div
-            style={{
-              ...styles.divider,
-              cursor: isDraggingDivider ? 'col-resize' : 'ew-resize',
-            }}
-            onMouseDown={() => setIsDraggingDivider(true)}
-            title="Drag to resize library panel"
-          />
-
-          {/* Preview Panel (right, resizable) */}
-          <div style={{...styles.preview, width: `${100 - libraryWidth}%`}}>
+          {/* Center Panel - Video Preview */}
+          <div style={styles.centerPanel}>
             <div style={styles.panelHeader}>Preview</div>
             <div style={styles.previewContent}>
               <PreviewPlayer />
             </div>
           </div>
+
         </div>
 
-        {/* Bottom section: Timeline (40% height) */}
-        <div style={styles.timeline}>
+        {/* Bottom Panel - Timeline */}
+        <div style={styles.bottomPanel}>
           <div style={styles.panelHeader}>
             <span>Timeline</span>
             <button onClick={handleExportClick} style={styles.exportButton}>
@@ -643,47 +635,30 @@ const styles = {
     backgroundColor: '#1a1a1a',
     color: '#ffffff',
   },
-  topSection: {
+  mainContent: {
     display: 'flex',
-    height: '60%',
-    borderBottom: '1px solid #333',
+    flex: 1,
+    height: '100vh',
   },
-  libraryWrapper: {
+  leftPanel: {
+    width: '300px',
+    backgroundColor: '#1e1e1e',
+    borderRight: '1px solid #333',
     display: 'flex',
     flexDirection: 'column' as const,
-    overflow: 'hidden',
   },
-  preview: {
+  centerPanel: {
+    flex: 1,
     display: 'flex',
     flexDirection: 'column' as const,
     backgroundColor: '#000',
-    overflow: 'hidden',
   },
-  divider: {
-    width: '4px',
-    backgroundColor: '#333',
-    cursor: 'ew-resize',
-    userSelect: 'none' as const,
-    transition: 'background-color 0.2s',
-    ':hover': {
-      backgroundColor: '#4a9eff',
-    },
-  },
-  previewContent: {
-    flex: 1,
-    display: 'flex',
-    position: 'relative' as const,
-    backgroundColor: '#101010',
-  },
-  timeline: {
-    height: '40%',
+  bottomPanel: {
+    height: '200px',
+    backgroundColor: '#1a1a1a',
+    borderTop: '1px solid #333',
     display: 'flex',
     flexDirection: 'column' as const,
-  },
-  timelineContent: {
-    flex: 1,
-    position: 'relative' as const,
-    overflow: 'hidden',
   },
   panelHeader: {
     padding: '12px 16px',
@@ -714,4 +689,16 @@ const styles = {
     transition: 'background-color 0.2s',
     textTransform: 'uppercase' as const,
   },
+  previewContent: {
+    flex: 1,
+    display: 'flex',
+    position: 'relative' as const,
+    backgroundColor: '#101010',
+  },
+  timelineContent: {
+    flex: 1,
+    position: 'relative' as const,
+    overflow: 'hidden',
+  },
 };
+

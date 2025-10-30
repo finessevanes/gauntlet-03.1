@@ -519,9 +519,6 @@ export const Timeline: React.FC = () => {
         timelineDuration={timeline.duration}
         zoomLevel={zoomLevel}
         onZoomChange={handleZoomChange}
-        isPlaying={isPlaying && previewSource === 'timeline'}
-        canPlay={canPlayTimeline}
-        onTogglePlay={handleTogglePlay}
       />
 
       {/* Timeline Track */}
@@ -562,6 +559,15 @@ export const Timeline: React.FC = () => {
               timelineWidth={timelineWidth}
               padding={TIMELINE_PADDING}
             />
+
+            {/* Track Labels */}
+            <div style={styles.trackLabels}>
+              <div style={styles.trackLabel}>V1</div>
+              <div style={styles.trackLabel}>A2</div>
+              <div style={styles.trackLabel}>A1</div>
+              <div style={styles.trackLabel}>TXT</div>
+              <div style={styles.trackLabel}>AO</div>
+            </div>
 
             {/* Drop Indicator - Render once at the calculated position */}
             {dropTargetIndex !== null && (
@@ -717,7 +723,7 @@ const styles = {
   },
   track: {
     position: 'relative' as const,
-    height: '120px',
+    height: '200px',
     minWidth: '100%',
     paddingLeft: '20px', // Add padding to make left edge easier to access
     paddingRight: '20px', // Add padding for symmetry
@@ -758,5 +764,27 @@ const styles = {
     fontSize: '16px',
     color: '#4a9eff',
     fontWeight: 'bold' as const,
+  },
+  trackLabels: {
+    position: 'absolute' as const,
+    left: '0',
+    top: '24px',
+    width: '60px',
+    height: '100%',
+    backgroundColor: '#252525',
+    borderRight: '1px solid #333',
+    display: 'flex',
+    flexDirection: 'column' as const,
+  },
+  trackLabel: {
+    height: '32px',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    fontSize: '12px',
+    fontWeight: 'bold' as const,
+    color: '#999',
+    borderBottom: '1px solid #333',
+    backgroundColor: '#1e1e1e',
   },
 };

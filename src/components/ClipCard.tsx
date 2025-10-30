@@ -179,6 +179,8 @@ const styles = {
     transition: 'all 0.2s ease',
     borderRadius: '8px',
     padding: '0',
+    width: '100%',
+    minWidth: 0, // Prevents flex items from overflowing
   },
   cardHover: {
     transform: 'scale(1.02)',
@@ -195,11 +197,12 @@ const styles = {
   thumbnailContainer: {
     position: 'relative' as const,
     width: '100%',
-    aspectRatio: '16/9',
+    height: '90px', // Reduced height for more landscape ratio
     borderRadius: '6px',
     overflow: 'hidden',
     backgroundColor: '#333',
     marginBottom: '6px',
+    flexShrink: 0, // Prevents container from shrinking
   },
   thumbnail: {
     width: '100%',

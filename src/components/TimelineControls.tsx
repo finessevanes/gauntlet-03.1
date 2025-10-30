@@ -11,9 +11,6 @@ interface TimelineControlsProps {
   timelineDuration: number;       // Total timeline duration in seconds
   zoomLevel: number;              // Current zoom level (100-1000)
   onZoomChange: (zoom: number | 'auto') => void;
-  isPlaying: boolean;
-  canPlay: boolean;
-  onTogglePlay: () => void;
 }
 
 export const TimelineControls: React.FC<TimelineControlsProps> = ({
@@ -21,9 +18,6 @@ export const TimelineControls: React.FC<TimelineControlsProps> = ({
   timelineDuration,
   zoomLevel,
   onZoomChange,
-  isPlaying,
-  canPlay,
-  onTogglePlay,
 }) => {
   const handleZoomSliderChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = parseInt(e.target.value, 10);
@@ -65,23 +59,6 @@ export const TimelineControls: React.FC<TimelineControlsProps> = ({
         <span style={styles.zoomLabel}>{zoomLevel}%</span>
       </div>
 
-      {/* Placeholder for Play/Pause (Story 6) */}
-      <div style={styles.playbackSection}>
-        <button
-          onClick={onTogglePlay}
-          disabled={!canPlay}
-          style={{
-            ...styles.playButton,
-            cursor: canPlay ? 'pointer' : 'not-allowed',
-            opacity: canPlay ? 1 : 0.4,
-            backgroundColor: isPlaying ? '#4a9eff' : '#3a3a3a',
-            color: isPlaying ? '#0d0d0d' : '#fff',
-          }}
-          title={canPlay ? (isPlaying ? 'Pause timeline preview' : 'Play timeline preview') : 'Add clips to enable playback'}
-        >
-          {isPlaying ? '⏸' : '▶'}
-        </button>
-      </div>
     </div>
   );
 };
@@ -125,23 +102,17 @@ const styles = {
   },
   zoomSlider: {
     width: '200px',
+    height: '6px',
     cursor: 'pointer',
+    background: '#3a3a3a',
+    outline: 'none',
+    borderRadius: '3px',
+    WebkitAppearance: 'none',
+    appearance: 'none',
   },
   zoomLabel: {
     minWidth: '50px',
     textAlign: 'right' as const,
     color: '#999',
-  },
-  playbackSection: {
-    flex: '0 0 auto',
-  },
-  playButton: {
-    padding: '6px 12px',
-    backgroundColor: '#3a3a3a',
-    border: '1px solid #555',
-    borderRadius: '4px',
-    color: '#fff',
-    fontSize: '14px',
-    transition: 'background-color 0.2s',
   },
 };
