@@ -36,7 +36,7 @@ export const Timeline: React.FC = () => {
   const [isDraggingOver, setIsDraggingOver] = useState(false);
   const [draggedClipId, setDraggedClipId] = useState<string | null>(null);
   const [dropTargetIndex, setDropTargetIndex] = useState<number | null>(null);
-  const [hoveredEdge, setHoveredEdge] = useState<{ clipId: string; edge: 'left' | 'right' } | null>(null);
+  const [hoveredEdge, setHoveredEdge] = useState<{ instanceId: string; edge: 'left' | 'right' } | null>(null);
 
   // Log selection changes
   const handleClipSelect = useCallback((clipId: string) => {
@@ -136,11 +136,11 @@ export const Timeline: React.FC = () => {
   const trimDrag = useTrimDrag(pixelsPerSecond, handleTrimComplete);
 
   // Handle edge hover change
-  const handleEdgeHoverChange = useCallback((clipId: string, edge: 'left' | 'right' | null) => {
+  const handleEdgeHoverChange = useCallback((instanceId: string, edge: 'left' | 'right' | null) => {
     if (edge === null) {
       setHoveredEdge(null);
     } else {
-      setHoveredEdge({ clipId, edge });
+      setHoveredEdge({ instanceId, edge });
     }
   }, []);
 

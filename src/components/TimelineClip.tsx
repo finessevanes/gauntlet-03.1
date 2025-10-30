@@ -28,8 +28,8 @@ interface TimelineClipProps {
   draggedClipIndex: number | null; // Index of the clip being dragged (for reorder calculation)
 
   // Trim props (Story 5)
-  hoveredEdge: { clipId: string; edge: 'left' | 'right' } | null;
-  onEdgeHoverChange: (clipId: string, edge: 'left' | 'right' | null) => void;
+  hoveredEdge: { instanceId: string; edge: 'left' | 'right' } | null;
+  onEdgeHoverChange: (instanceId: string, edge: 'left' | 'right' | null) => void;
   onTrimStart: (clipId: string, instanceId: string, edge: 'left' | 'right', e: React.MouseEvent) => void;
   isTrimming: boolean;            // Is any clip currently being trimmed
   draggedInPoint: number | null;  // Current inPoint during drag (optimistic UI)
@@ -106,9 +106,9 @@ export const TimelineClip: React.FC<TimelineClipProps> = ({
     });
   }
 
-  // Check if this clip's edge is being hovered
-  const isLeftEdgeHovered = hoveredEdge?.clipId === clip.id && hoveredEdge.edge === 'left';
-  const isRightEdgeHovered = hoveredEdge?.clipId === clip.id && hoveredEdge.edge === 'right';
+  // Check if this clip's edge is being hovered (use instanceId, not clipId, to support multiple instances)
+  const isLeftEdgeHovered = hoveredEdge?.instanceId === instanceId && hoveredEdge.edge === 'left';
+  const isRightEdgeHovered = hoveredEdge?.instanceId === instanceId && hoveredEdge.edge === 'right';
   const isAnyEdgeHovered = isLeftEdgeHovered || isRightEdgeHovered;
 
   // Handle click - select the clip (same as Library)
@@ -147,26 +147,26 @@ export const TimelineClip: React.FC<TimelineClipProps> = ({
 
     // Check left edge
     if (relativeX <= EDGE_THRESHOLD) {
-      onEdgeHoverChange(clip.id, 'left');
+      onEdgeHoverChange(instanceId, 'left');
       return;
     }
 
     // Check right edge
     if (relativeX >= rect.width - EDGE_THRESHOLD) {
-      onEdgeHoverChange(clip.id, 'right');
+      onEdgeHoverChange(instanceId, 'right');
       return;
     }
 
     // Not hovering over edge (only clear if not currently trimming this clip)
     if (!isTrimming) {
-      onEdgeHoverChange(clip.id, null);
+      onEdgeHoverChange(instanceId, null);
     }
   };
 
   // Handle mouse leave (clear edge hover, unless currently trimming)
   const handleMouseLeave = () => {
     if (!isTrimming) {
-      onEdgeHoverChange(clip.id, null);
+      onEdgeHoverChange(instanceId, null);
     }
   };
 
