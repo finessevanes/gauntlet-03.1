@@ -19,6 +19,7 @@ import { PermissionProvider } from '../context/PermissionContext';
 import { useImport } from '../hooks/useImport';
 import { useScreenRecorder } from '../hooks/useScreenRecorder';
 import { Timeline } from './Timeline';
+import { TimelineDemo } from './v2/TimelineDemo'; // NEW: Multitrack timeline demo
 import { PreviewPlayer } from './PreviewPlayer';
 import ExportModal from './ExportModal';
 import PresetSelector from './PresetSelector';
@@ -576,16 +577,10 @@ export const MainLayout: React.FC = () => {
 
         </div>
 
-        {/* Bottom Panel - Timeline */}
+        {/* Bottom Panel - Timeline (NEW: Using TimelineDemo for testing) */}
         <div className="h-80 bg-dark-900 border-t border-dark-700 flex flex-col">
-          <div className="px-4 py-3 bg-dark-700 border-b border-dark-700 text-xs font-bold uppercase text-dark-400 flex justify-between items-center">
-            <span>Timeline</span>
-            <button onClick={handleExportClick} className="px-4 py-2 text-xs font-bold bg-blue-400 text-white border-0 rounded cursor-pointer transition-colors duration-200 hover:bg-blue-500 uppercase">
-              Export
-            </button>
-          </div>
           <div className="flex-1 relative overflow-hidden">
-            <Timeline />
+            <TimelineDemo />
           </div>
         </div>
         </div>
