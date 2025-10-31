@@ -3,20 +3,24 @@
  * Main multitrack timeline with vertical track stacking
  */
 
-import React, { useRef, useEffect, useState } from 'react';
+import React, { useRef, useEffect, useState, useCallback } from 'react';
 import { useTimelineStore } from '../../store/timelineStore';
 import { useSessionStore } from '../../store/sessionStore'; // For library clips
 import { useUndoRedo } from '../../hooks/useUndoRedo';
 import { useSnapping } from '../../hooks/useSnapping';
 import { TrackV2 } from './TrackV2';
-import { ticksToSeconds, secondsToTicks } from '../../types/timeline';
+import { ticksToSeconds, secondsToTicks, TRACK_POLICY_PRESETS } from '../../types/timeline';
 import { InsertCommand } from '../../timeline/commands/InsertCommand';
 import { DeleteCommand } from '../../timeline/commands/DeleteCommand';
 import { TrimCommand } from '../../timeline/commands/TrimCommand';
 import { SplitCommand } from '../../timeline/commands/SplitCommand';
 import { MoveCommand } from '../../timeline/commands/MoveCommand';
-import type { Clip as TimelineClip } from '../../types/timeline';
+import type { Clip as TimelineClip, Track } from '../../types/timeline';
 import { v4 as uuidv4 } from 'uuid';
+import ExportModal from '../ExportModal';
+import PresetSelector from '../PresetSelector';
+import PresetManager from '../PresetManager';
+import type { ExportPreset } from '../../types/export';
 
 export function TimelineV2() {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -57,13 +61,32 @@ export function TimelineV2() {
   const setScrollPosition = useTimelineStore((state) => state.setScrollPosition);
   const setZoomLevel = useTimelineStore((state) => state.setZoomLevel);
   const executeCommand = useTimelineStore((state) => state.executeCommand);
+  const updateDoc = useTimelineStore((state) => state.updateDoc);
 
   // Store state - Old session (for library clips and playback)
   const libraryClips = useSessionStore((state) => state.clips);
+  const timeline = useSessionStore((state) => state.timeline);
   const isPlaying = useSessionStore((state) => state.isPlaying);
   const setIsPlaying = useSessionStore((state) => state.setIsPlaying);
   const setPreviewSource = useSessionStore((state) => state.setPreviewSource);
+  const previewSource = useSessionStore((state) => state.previewSource);
   const oldPlayheadPosition = useSessionStore((state) => state.playheadPosition);
+
+  // Export state
+  const [isExportModalOpen, setIsExportModalOpen] = useState(false);
+  const [exportStatus, setExportStatus] = useState<'validating' | 'exporting' | 'error' | 'complete'>('validating');
+  const [exportProgress, setExportProgress] = useState({
+    percentComplete: 0,
+    estimatedTimeRemaining: 0,
+    errorMessage: undefined as string | undefined,
+  });
+  const [exportOutputPath, setExportOutputPath] = useState<string | undefined>();
+  const [isPresetSelectorOpen, setIsPresetSelectorOpen] = useState(false);
+  const [presets, setPresets] = useState<ExportPreset[]>([]);
+  const [defaultPresetId, setDefaultPresetId] = useState<string | null>(null);
+  const [sourceResolution, setSourceResolution] = useState({ width: 1920, height: 1080 });
+  const [selectedPreset, setSelectedPreset] = useState<ExportPreset | null>(null);
+  const [isPresetManagerOpen, setIsPresetManagerOpen] = useState(false);
 
   // Hooks
   const { canUndo, canRedo, undoCount, redoCount } = useUndoRedo();
@@ -122,6 +145,7 @@ export function TimelineV2() {
   // Handle keyboard shortcuts (Delete/Backspace, Spacebar for play/pause, S for split, Zoom)
   // Use refs for frequently changing values to avoid re-attaching listener on every render
   const isPlayingRef = useRef(isPlaying);
+  const previewSourceRef = useRef(previewSource);
   const playheadPositionRef = useRef(playheadPosition);
   const selectedClipIdsRef = useRef(selectedClipIds);
   const docRef = useRef(doc);
@@ -129,6 +153,7 @@ export function TimelineV2() {
 
   useEffect(() => {
     isPlayingRef.current = isPlaying;
+    previewSourceRef.current = previewSource;
     playheadPositionRef.current = playheadPosition;
     selectedClipIdsRef.current = selectedClipIds;
     docRef.current = doc;
@@ -174,7 +199,11 @@ export function TimelineV2() {
         setPreviewSource('timeline', { resetPlayhead: false });
 
         // Toggle play/pause
-        setIsPlaying(!isPlayingRef.current);
+        if (previewSourceRef.current !== 'timeline') {
+          setIsPlaying(true);
+        } else {
+          setIsPlaying(!isPlayingRef.current);
+        }
 
         console.log('[TimelineV2] Playback:', !isPlayingRef.current ? 'Playing' : 'Paused');
         return;
@@ -401,8 +430,18 @@ export function TimelineV2() {
     };
   }, [dragState]);
 
+  // Ensure the preview surface is pointing at the timeline when interacting with it
+  const ensureTimelinePreview = useCallback(() => {
+    const currentPreviewSource = useSessionStore.getState().previewSource;
+    if (currentPreviewSource !== 'timeline') {
+      setPreviewSource('timeline', { resetPlayhead: false });
+      setIsPlaying(false);
+    }
+  }, [setPreviewSource, setIsPlaying]);
+
   // Handle timeline click (set playhead)
   const handleTimelineClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    ensureTimelinePreview();
     if (containerRef.current) {
       const rect = containerRef.current.getBoundingClientRect();
       const x = e.clientX - rect.left + scrollPosition;
@@ -416,6 +455,7 @@ export function TimelineV2() {
 
   // Handle clip selection
   const handleClipSelect = (clipId: string) => {
+    ensureTimelinePreview();
     setSelectedClips([clipId]);
   };
 
@@ -686,54 +726,347 @@ export function TimelineV2() {
     console.log('Drag end:', clipId, 'new position:', snapResult.snapTime);
   };
 
+  // Add overlay track
+  const addOverlayTrack = () => {
+    // Count existing overlay tracks for naming
+    const overlayCount = doc.tracks.filter((t) => t.role === 'overlay').length;
+    const trackNumber = overlayCount + 1;
+    const trackId = `overlay-video-${uuidv4()}`;
+
+    // Create new overlay track
+    const newTrack: Track = {
+      id: trackId,
+      type: 'video',
+      role: 'overlay',
+      lanes: [{ id: `${trackId}-lane-0`, clips: [] }],
+      policy: TRACK_POLICY_PRESETS.overlay,
+      name: `Overlay ${trackNumber}`,
+      color: '#8B5CF6', // purple
+    };
+
+    // Add track to timeline
+    updateDoc((currentDoc) => ({
+      ...currentDoc,
+      tracks: [...currentDoc.tracks, newTrack],
+    }));
+
+    console.log('[TimelineV2] Added overlay track:', newTrack.name);
+  };
+
+  // Load presets on mount
+  useEffect(() => {
+    const loadPresets = async () => {
+      try {
+        const result = await window.electron.invoke('export-get-presets');
+        if (result.presets) {
+          setPresets(result.presets);
+          if (result.defaultPresetId) {
+            setDefaultPresetId(result.defaultPresetId);
+          }
+        }
+      } catch (error) {
+        console.error('[TimelineV2] Failed to load presets:', error);
+      }
+    };
+    loadPresets();
+  }, []);
+
+  // Handle Export button click
+  const handleExportClick = async () => {
+    // Basic validation: check if timeline has clips
+    if (!timeline.clips || timeline.clips.length === 0) {
+      setExportProgress({
+        percentComplete: 0,
+        estimatedTimeRemaining: 0,
+        errorMessage: 'Add at least one clip to export',
+      });
+      setExportStatus('error');
+      setIsExportModalOpen(true);
+      return;
+    }
+
+    // Determine source resolution
+    const maxResolution = timeline.clips.reduce(
+      (max, tc) => {
+        const clip = libraryClips.find((c) => c.id === tc.clipId);
+        if (clip) {
+          return {
+            width: Math.max(max.width, clip.resolution?.width || 1920),
+            height: Math.max(max.height, clip.resolution?.height || 1080),
+          };
+        }
+        return max;
+      },
+      { width: 1920, height: 1080 }
+    );
+
+    setSourceResolution(maxResolution);
+
+    // Show preset selector
+    setIsPresetSelectorOpen(true);
+  };
+
+  // Handle preset selection
+  const handlePresetSelected = async (preset: ExportPreset) => {
+    setSelectedPreset(preset);
+    setIsPresetSelectorOpen(false);
+
+    // Open the save dialog with preset-specific filename
+    const timestamp = new Date().toISOString().replace(/[-:]/g, '').split('.')[0].replace('T', '_');
+    const defaultFilename = `Klippy_Export_${preset.name}_${timestamp}.mp4`;
+
+    try {
+      const result = await window.electron.invoke('dialog:showSaveDialog', {
+        defaultPath: defaultFilename,
+        filters: [{ name: 'MP4 Video', extensions: ['mp4'] }],
+      });
+
+      if (result.canceled || !result.filePath) {
+        return;
+      }
+
+      const outputPath = result.filePath;
+      setExportOutputPath(outputPath);
+      setIsExportModalOpen(true);
+      setExportStatus('validating');
+
+      // Convert overlay tracks to export format
+      const overlayTracks = doc.tracks
+        .filter((t) => t.type === 'video' && t.role === 'overlay')
+        .map((track) => {
+          const ticksPerSecond = doc.timebase.ticksPerSecond;
+          const overlayClips: Array<{
+            clipId: string;
+            inPoint: number;
+            outPoint: number;
+            startTime: number;
+          }> = [];
+
+          for (const lane of track.lanes) {
+            for (const clip of lane.clips) {
+              const libraryClip = libraryClips.find((lc) => lc.id === clip.sourceId);
+              if (libraryClip) {
+                overlayClips.push({
+                  clipId: clip.sourceId,
+                  inPoint: ticksToSeconds(clip.srcStart, ticksPerSecond),
+                  outPoint: ticksToSeconds(clip.srcStart + clip.duration, ticksPerSecond),
+                  startTime: ticksToSeconds(clip.start, ticksPerSecond),
+                });
+              }
+            }
+          }
+
+          return { clips: overlayClips };
+        });
+
+      // Start export
+      try {
+        await window.electron.invoke('export-video', {
+          outputPath,
+          timeline: {
+            clips: timeline.clips,
+            totalDuration: timeline.duration,
+          },
+          libraryClips,
+          preset,
+          overlayTracks: overlayTracks.length > 0 ? overlayTracks : undefined,
+        });
+
+        setExportStatus('exporting');
+      } catch (error: any) {
+        setExportProgress({
+          percentComplete: 0,
+          estimatedTimeRemaining: 0,
+          errorMessage: error.message || 'Export failed',
+        });
+        setExportStatus('error');
+      }
+    } catch (error: any) {
+      console.error('[TimelineV2] Export dialog error:', error);
+    }
+  };
+
+  // Handle export cancel
+  const handleExportCancel = () => {
+    if (exportStatus === 'exporting') {
+      window.electron.invoke('export-cancel');
+    }
+    setIsExportModalOpen(false);
+    setExportStatus('validating');
+    setExportProgress({
+      percentComplete: 0,
+      estimatedTimeRemaining: 0,
+      errorMessage: undefined,
+    });
+    setExportOutputPath(undefined);
+  };
+
+  // Listen for export progress updates
+  useEffect(() => {
+    const handleExportProgress = (progress: any) => {
+      setExportProgress({
+        percentComplete: progress.percentComplete,
+        estimatedTimeRemaining: progress.estimatedTimeRemaining,
+        errorMessage: undefined,
+      });
+    };
+
+    const handleExportCancelled = () => {
+      setIsExportModalOpen(false);
+      setExportStatus('validating');
+      setExportProgress({
+        percentComplete: 0,
+        estimatedTimeRemaining: 0,
+        errorMessage: undefined,
+      });
+    };
+
+    const cleanupProgress = window.electron.export.onProgress(handleExportProgress);
+    const cleanupCancelled = window.electron.export.onCancelled(handleExportCancelled);
+
+    return () => {
+      cleanupProgress();
+      cleanupCancelled();
+    };
+  }, []);
+
+  // Handle preset management
+  const handleManagePresetsClick = () => {
+    setIsPresetManagerOpen(true);
+  };
+
+  const handlePresetSave = async (preset: ExportPreset) => {
+    try {
+      const result = await window.electron.invoke('export-save-custom-preset', {
+        preset,
+      });
+      if (result.success) {
+        // Refresh presets
+        const refreshResult = await window.electron.invoke('export-get-presets');
+        if (refreshResult.presets) {
+          setPresets(refreshResult.presets);
+          if (refreshResult.defaultPresetId) {
+            setDefaultPresetId(refreshResult.defaultPresetId);
+          }
+        }
+      }
+      return result;
+    } catch (error) {
+      console.error('[TimelineV2] Failed to save preset:', error);
+      return { success: false, error: 'Failed to save preset' };
+    }
+  };
+
+  const handlePresetDelete = async (presetId: string) => {
+    try {
+      const result = await window.electron.invoke('export-delete-custom-preset', {
+        presetId,
+      });
+      if (result.success) {
+        // Refresh presets
+        const refreshResult = await window.electron.invoke('export-get-presets');
+        if (refreshResult.presets) {
+          setPresets(refreshResult.presets);
+          if (refreshResult.defaultPresetId) {
+            setDefaultPresetId(refreshResult.defaultPresetId);
+          }
+        }
+      }
+      return result;
+    } catch (error) {
+      console.error('[TimelineV2] Failed to delete preset:', error);
+      return { success: false, error: 'Failed to delete preset' };
+    }
+  };
+
+  const handleRefreshPresets = async () => {
+    try {
+      const result = await window.electron.invoke('export-get-presets');
+      if (result.presets) {
+        setPresets(result.presets);
+        if (result.defaultPresetId) {
+          setDefaultPresetId(result.defaultPresetId);
+        }
+      }
+    } catch (error) {
+      console.error('[TimelineV2] Failed to refresh presets:', error);
+    }
+  };
+
+  const handleSetDefaultPreset = async (presetId: string | null) => {
+    try {
+      const result = await window.electron.invoke('export-set-default-preset', {
+        presetId,
+      });
+      if (result.success) {
+        setDefaultPresetId(presetId);
+      }
+    } catch (error) {
+      console.error('[TimelineV2] Failed to set default preset:', error);
+    }
+  };
+
   return (
     <div className="flex flex-col h-full min-h-0 bg-gray-900">
       {/* Top Controls */}
-      <div className="flex items-center gap-4 h-12 px-4 bg-gray-800 border-b border-gray-700" onClick={handleNonTimelineClick}>
-        <div className="text-sm text-white font-medium">Timeline V2</div>
+      <div className="flex items-center gap-3 h-12 px-4 bg-gray-800 border-b border-gray-700" onClick={handleNonTimelineClick}>
+        {/* Title */}
+        <div className="text-xs text-gray-400 font-medium mr-2">Timeline</div>
 
-        {/* Undo/Redo */}
-        <div className="flex items-center gap-2">
+        {/* Divider */}
+        <div className="w-px h-5 bg-gray-700" />
+
+        {/* Primary: Play/Pause */}
+        <button
+          onClick={() => {
+            if (previewSource !== 'timeline') {
+              setPreviewSource('timeline', { resetPlayhead: false });
+              setIsPlaying(true);
+              return;
+            }
+
+            setIsPlaying(!isPlaying);
+          }}
+          className="px-3 py-1.5 rounded-md text-sm font-medium bg-green-600 hover:bg-green-700 text-white transition-colors"
+          title={isPlaying ? 'Pause (Space)' : 'Play (Space)'}
+        >
+          {isPlaying ? '⏸ Pause' : '▶ Play'}
+        </button>
+
+        {/* Divider */}
+        <div className="w-px h-5 bg-gray-700" />
+
+        {/* History: Undo/Redo */}
+        <div className="flex items-center gap-1">
           <button
             disabled={!canUndo}
-            className={`px-3 py-1 rounded text-sm ${
+            className={`px-2.5 py-1.5 rounded-md text-sm ${
               canUndo
-                ? 'bg-blue-600 hover:bg-blue-700 text-white'
-                : 'bg-gray-700 text-gray-500 cursor-not-allowed'
-            }`}
+                ? 'bg-gray-700 hover:bg-gray-600 text-white'
+                : 'bg-gray-800 text-gray-500 cursor-not-allowed'
+            } transition-colors`}
             title={`Undo (${undoCount} available)`}
           >
-            Undo
+            ↶ Undo
           </button>
           <button
             disabled={!canRedo}
-            className={`px-3 py-1 rounded text-sm ${
+            className={`px-2.5 py-1.5 rounded-md text-sm ${
               canRedo
-                ? 'bg-blue-600 hover:bg-blue-700 text-white'
-                : 'bg-gray-700 text-gray-500 cursor-not-allowed'
-            }`}
+                ? 'bg-gray-700 hover:bg-gray-600 text-white'
+                : 'bg-gray-800 text-gray-500 cursor-not-allowed'
+            } transition-colors`}
             title={`Redo (${redoCount} available)`}
           >
-            Redo
+            ↷ Redo
           </button>
         </div>
 
-        {/* Play/Pause Button */}
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => {
-              setPreviewSource('timeline', { resetPlayhead: false });
-              setIsPlaying(!isPlaying);
-            }}
-            className="px-3 py-1 rounded text-sm bg-green-600 hover:bg-green-700 text-white"
-            title={isPlaying ? 'Pause (Space)' : 'Play (Space)'}
-          >
-            {isPlaying ? '⏸ Pause' : '▶ Play'}
-          </button>
-        </div>
+        {/* Divider */}
+        <div className="w-px h-5 bg-gray-700" />
 
-        {/* Split Button */}
-        <div className="flex items-center gap-2">
+        {/* Editing: Split, Delete */}
+        <div className="flex items-center gap-1">
           <button
             onClick={() => {
               // Find clip at playhead position
@@ -762,15 +1095,11 @@ export function TimelineV2() {
                 );
               }
             }}
-            className="px-3 py-1 rounded text-sm bg-purple-600 hover:bg-purple-700 text-white"
+            className="px-2.5 py-1.5 rounded-md text-sm bg-gray-700 hover:bg-gray-600 text-white transition-colors"
             title="Split clip at playhead (S key)"
           >
             ✂ Split
           </button>
-        </div>
-
-        {/* Delete Button */}
-        <div className="flex items-center gap-2">
           <button
             disabled={selectedClipIds.length === 0}
             onClick={() => {
@@ -779,46 +1108,76 @@ export function TimelineV2() {
               });
               setSelectedClips([]);
             }}
-            className={`px-3 py-1 rounded text-sm ${
+            className={`px-2.5 py-1.5 rounded-md text-sm transition-colors ${
               selectedClipIds.length > 0
                 ? 'bg-red-600 hover:bg-red-700 text-white'
-                : 'bg-gray-700 text-gray-500 cursor-not-allowed'
+                : 'bg-gray-800 text-gray-500 cursor-not-allowed'
             }`}
             title="Delete selected clips (Delete/Backspace)"
           >
-            Delete
+            ⌫ Delete
           </button>
         </div>
 
-        {/* Snapping Indicator */}
-        <div className="flex items-center gap-2">
+        {/* Divider */}
+        <div className="w-px h-5 bg-gray-700" />
+
+        {/* Timeline: Add Overlay Track */}
+        <button
+          onClick={addOverlayTrack}
+          className="px-2.5 py-1.5 rounded-md text-sm bg-purple-600 hover:bg-purple-700 text-white transition-colors whitespace-nowrap"
+          title="Add overlay track"
+        >
+          + Overlay
+        </button>
+
+        {/* Divider */}
+        <div className="w-px h-5 bg-gray-700" />
+
+        {/* Export Button */}
+        <button
+          onClick={handleExportClick}
+          className="px-3 py-1.5 rounded-md text-sm font-medium bg-blue-600 hover:bg-blue-700 text-white transition-colors"
+          title="Export timeline to MP4"
+        >
+          Export
+        </button>
+
+        {/* Spacer */}
+        <div className="flex-1" />
+
+        {/* View: Snapping Indicator */}
+        <div className="flex items-center gap-1.5 mr-3">
           <div
-            className={`w-3 h-3 rounded-full ${
+            className={`w-2 h-2 rounded-full ${
               isSnappingDisabled ? 'bg-gray-600' : 'bg-green-500'
             }`}
           />
           <span className="text-xs text-gray-400">
-            {isSnappingDisabled ? 'Snapping OFF (Shift)' : 'Snapping ON'}
+            {isSnappingDisabled ? 'Snap OFF' : 'Snap ON'}
           </span>
         </div>
 
+        {/* Divider */}
+        <div className="w-px h-5 bg-gray-700" />
+
         {/* Zoom Controls */}
-        <div className="ml-auto flex items-center gap-2">
+        <div className="flex items-center gap-1.5">
           <button
             onClick={() => setZoomLevel(Math.max(10, zoomLevel - 10))}
-            className="px-2 py-1 rounded text-sm bg-gray-700 hover:bg-gray-600 text-white"
+            className="w-7 h-7 flex items-center justify-center rounded-md bg-gray-700 hover:bg-gray-600 text-white transition-colors"
             title="Zoom Out (Cmd/Ctrl + -)"
           >
             −
           </button>
 
-          <span className="text-sm text-gray-400 min-w-[60px] text-center">
+          <span className="text-xs text-gray-300 min-w-[45px] text-center font-mono">
             {zoomLevel}%
           </span>
 
           <button
             onClick={() => setZoomLevel(Math.min(1000, zoomLevel + 10))}
-            className="px-2 py-1 rounded text-sm bg-gray-700 hover:bg-gray-600 text-white"
+            className="w-7 h-7 flex items-center justify-center rounded-md bg-gray-700 hover:bg-gray-600 text-white transition-colors"
             title="Zoom In (Cmd/Ctrl + +)"
           >
             +
@@ -826,7 +1185,7 @@ export function TimelineV2() {
 
           <button
             onClick={() => setZoomLevel(100)}
-            className="px-2 py-1 rounded text-xs bg-gray-700 hover:bg-gray-600 text-white"
+            className="px-2 py-1 rounded-md text-xs bg-gray-700 hover:bg-gray-600 text-gray-300 transition-colors"
             title="Reset Zoom (Cmd/Ctrl + 0)"
           >
             Reset
@@ -844,15 +1203,16 @@ export function TimelineV2() {
               setZoomLevel(clampedZoom);
               console.log('[TimelineV2] Zoom to fit:', clampedZoom);
             }}
-            className="px-2 py-1 rounded text-xs bg-gray-700 hover:bg-gray-600 text-white"
+            className="px-2 py-1 rounded-md text-xs bg-gray-700 hover:bg-gray-600 text-gray-300 transition-colors"
             title="Zoom to fit entire timeline"
           >
             Fit
           </button>
+        </div>
 
-          <span className="text-xs text-gray-500 ml-2">
-            | Tracks: {doc.tracks.length}
-          </span>
+        {/* Track Count */}
+        <div className="text-xs text-gray-500 ml-3 font-medium">
+          {doc.tracks.length} {doc.tracks.length === 1 ? 'Track' : 'Tracks'}
         </div>
       </div>
 
@@ -970,6 +1330,37 @@ export function TimelineV2() {
           Selected: {selectedClipIds.length} clip{selectedClipIds.length !== 1 ? 's' : ''}
         </div>
       </div>
+
+      {/* Export Modal */}
+      <ExportModal
+        isOpen={isExportModalOpen}
+        onCancel={handleExportCancel}
+        progress={exportProgress}
+        status={exportStatus}
+        outputPath={exportOutputPath}
+      />
+
+      {/* Preset Selector Modal */}
+      <PresetSelector
+        isOpen={isPresetSelectorOpen}
+        presets={presets}
+        sourceResolution={sourceResolution}
+        defaultPresetId={defaultPresetId}
+        onSelect={handlePresetSelected}
+        onCancel={() => setIsPresetSelectorOpen(false)}
+        onManagePresets={handleManagePresetsClick}
+        onSetDefault={handleSetDefaultPreset}
+      />
+
+      {/* Preset Manager Modal */}
+      <PresetManager
+        isOpen={isPresetManagerOpen}
+        presets={presets}
+        onClose={() => setIsPresetManagerOpen(false)}
+        onSave={handlePresetSave}
+        onDelete={handlePresetDelete}
+        onRefresh={handleRefreshPresets}
+      />
     </div>
   );
 }

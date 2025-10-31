@@ -5,12 +5,19 @@
 
 import React from 'react';
 
+interface OverlayVideoConfig {
+  ref: React.RefObject<HTMLVideoElement>;
+  isVisible: boolean;
+  style?: React.CSSProperties;
+}
+
 interface VideoCanvasProps {
   videoRef: React.RefObject<HTMLVideoElement>;
   isEmpty: boolean;
   isError: boolean;
   errorMessage?: string | null;
   isBuffering: boolean;
+  overlayVideos?: OverlayVideoConfig[];
 }
 
 export const VideoCanvas: React.FC<VideoCanvasProps> = ({
@@ -19,6 +26,7 @@ export const VideoCanvas: React.FC<VideoCanvasProps> = ({
   isError,
   errorMessage,
   isBuffering,
+  overlayVideos,
 }) => {
   const showOverlay = isEmpty || isError;
 
@@ -35,6 +43,22 @@ export const VideoCanvas: React.FC<VideoCanvasProps> = ({
         disablePictureInPicture
         preload="auto"
       />
+
+      {overlayVideos?.map((overlay, index) => (
+        <video
+          key={`overlay-${index}`}
+          ref={overlay.ref}
+          style={{
+            ...styles.overlayVideo,
+            ...overlay.style,
+            visibility: overlay.isVisible ? 'visible' : 'hidden',
+          }}
+          playsInline
+          disablePictureInPicture
+          preload="auto"
+          muted
+        />
+      ))}
 
       {isEmpty && (
         <div style={styles.overlay}>
@@ -76,6 +100,20 @@ const styles = {
     objectFit: 'contain' as const,
     objectPosition: 'center center',
     backgroundColor: '#000',
+  },
+  overlayVideo: {
+    position: 'absolute' as const,
+    right: '32px',
+    bottom: '80px',
+    width: '25%',
+    maxWidth: '320px',
+    borderRadius: '8px',
+    overflow: 'hidden',
+    boxShadow: '0 12px 32px rgba(0, 0, 0, 0.35)',
+    border: '2px solid rgba(255, 255, 255, 0.1)',
+    backgroundColor: '#000',
+    pointerEvents: 'none' as const,
+    objectFit: 'contain' as const,
   },
   overlay: {
     position: 'absolute' as const,

@@ -18,15 +18,16 @@ import { PermissionModal } from './PermissionModal';
 import { PermissionProvider } from '../context/PermissionContext';
 import { useImport } from '../hooks/useImport';
 import { useScreenRecorder } from '../hooks/useScreenRecorder';
-import { Timeline } from './Timeline';
-import { TimelineDemo } from './v2/TimelineDemo'; // NEW: Multitrack timeline demo
+import { TimelineV2 } from './v2/TimelineV2';
 import { PreviewPlayer } from './PreviewPlayer';
+import { MultitrackPreviewPlayer } from './MultitrackPreviewPlayer';
 import ExportModal from './ExportModal';
 import PresetSelector from './PresetSelector';
 import PresetManager from './PresetManager';
 import { TeleprompterModal } from './TeleprompterModal';
 import { ExportPreset } from '../types/export';
 import { useSessionStore } from '../store/sessionStore';
+import { useTimelineStore } from '../store/timelineStore';
 
 export const MainLayout: React.FC = () => {
   const { importProgress, importError, importVideos, openFilePicker, clearImportProgress, clearImportError } = useImport();
@@ -83,6 +84,8 @@ export const MainLayout: React.FC = () => {
   // Get session data for export
   const clips = useSessionStore((state) => state.clips);
   const timeline = useSessionStore((state) => state.timeline);
+  const previewSource = useSessionStore((state) => state.previewSource);
+  const setLibraryClips = useTimelineStore((state) => state.setLibraryClips);
 
   /**
    * Load presets on component mount (Story 14: Advanced Export Options)
@@ -105,6 +108,11 @@ export const MainLayout: React.FC = () => {
 
     loadPresets();
   }, []);
+
+  // Sync session library clips into multitrack timeline store for playback
+  useEffect(() => {
+    setLibraryClips(clips);
+  }, [clips, setLibraryClips]);
 
   /**
    * Handle divider drag to resize library/preview panels
@@ -571,16 +579,20 @@ export const MainLayout: React.FC = () => {
           <div className="flex-1 flex flex-col bg-black">
             <div className="px-4 py-3 bg-dark-700 border-b border-dark-700 text-xs font-bold uppercase text-dark-400">Preview</div>
             <div className="flex-1 relative bg-dark-950">
-              <PreviewPlayer />
+              {previewSource === 'library' ? (
+                <PreviewPlayer />
+              ) : (
+                <MultitrackPreviewPlayer />
+              )}
             </div>
           </div>
 
         </div>
 
-        {/* Bottom Panel - Timeline (NEW: Using TimelineDemo for testing) */}
+        {/* Bottom Panel - Timeline */}
         <div className="h-80 bg-dark-900 border-t border-dark-700 flex flex-col min-h-0">
           <div className="flex-1 min-h-0 relative overflow-hidden">
-            <TimelineDemo />
+            <TimelineV2 />
           </div>
         </div>
         </div>
