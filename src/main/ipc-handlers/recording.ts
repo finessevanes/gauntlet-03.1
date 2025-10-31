@@ -43,6 +43,7 @@ import {
   getRecordingsDirectory,
 } from '../services/screenRecordingService';
 import { convertWebmToMp4, executeFFmpeg, executeFFprobe, generatePiPThumbnail } from '../services/ffmpeg-service';
+import { showRecordingOverlay, hideRecordingOverlay } from '../services/recordingOverlay';
 
 /**
  * Register all recording IPC handlers
@@ -662,6 +663,22 @@ async function handleStartPiPRecording(
       webcamFilePath,
     });
 
+    // Show recording overlay
+    try {
+      const screens = await getAvailableScreens();
+      const selectedScreen = screens.find(s => s.id === request.screenId);
+
+      if (selectedScreen) {
+        console.log('[PiPHandlers] Showing overlay for screen:', selectedScreen.id);
+        showRecordingOverlay(selectedScreen);
+      } else {
+        console.warn('[PiPHandlers] Selected screen not found, overlay not shown');
+      }
+    } catch (error) {
+      console.error('[PiPHandlers] Error showing overlay:', error);
+      // Don't fail the recording if overlay fails
+    }
+
     return {
       success: true,
       recordingId,
@@ -707,6 +724,9 @@ async function handleStopPiPRecording(
       screenFile: session.screenFilePath,
       webcamFile: session.webcamFilePath,
     });
+
+    // Hide recording overlay
+    hideRecordingOverlay();
 
     return {
       success: true,

@@ -91,10 +91,12 @@ export default function ExportModal({
           <p style={styles.errorMessage}>{errorMessage}</p>
         )}
 
-        {/* File Location (only show when complete) */}
-        {status === 'complete' && outputPath && (
+        {/* File Location (show whenever outputPath is available) */}
+        {outputPath && (
           <div style={styles.fileLocationContainer}>
-            <p style={styles.fileLocationLabel}>Saved to:</p>
+            <p style={styles.fileLocationLabel}>
+              {status === 'complete' ? 'Saved to:' : 'Saving to:'}
+            </p>
             <p style={styles.fileLocationPath}>{outputPath}</p>
           </div>
         )}

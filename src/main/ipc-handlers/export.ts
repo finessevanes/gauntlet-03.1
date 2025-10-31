@@ -22,6 +22,14 @@ interface ExportRequest {
   };
   libraryClips: Clip[]; // Library clips referenced by timeline clips
   preset?: ExportPreset; // Story 14: Advanced Export Options
+  overlayTracks?: Array<{
+    clips: Array<{
+      clipId: string;
+      inPoint: number;
+      outPoint: number;
+      startTime: number;
+    }>;
+  }>; // Overlay tracks with their clips
 }
 
 /**
@@ -97,7 +105,7 @@ async function handleExportVideo(
   });
 
   try {
-    const { outputPath, timeline, libraryClips } = request;
+    const { outputPath, timeline, libraryClips, overlayTracks } = request;
 
     // Convert timeline clips to effective clips with trim points
     const effectiveClips: Clip[] = timeline.clips.map(timelineClip => {
@@ -112,6 +120,25 @@ async function handleExportVideo(
       };
     });
 
+    // Convert overlay tracks to effective clips
+    const overlayClips: Clip[] = [];
+    if (overlayTracks && overlayTracks.length > 0) {
+      for (const track of overlayTracks) {
+        for (const overlayClip of track.clips) {
+          const libraryClip = libraryClips.find(c => c.id === overlayClip.clipId);
+          if (!libraryClip) {
+            console.warn(`[Export] Overlay library clip not found: ${overlayClip.clipId}`);
+            continue;
+          }
+          overlayClips.push({
+            ...libraryClip,
+            inPoint: overlayClip.inPoint,
+            outPoint: overlayClip.outPoint,
+          });
+        }
+      }
+    }
+
     // Validate timeline and source files
     const validation = await validateTimeline(effectiveClips);
     if (!validation.valid) {
@@ -121,8 +148,19 @@ async function handleExportVideo(
       };
     }
 
+    // Validate overlay clips
+    for (const clip of overlayClips) {
+      if (!fs.existsSync(clip.filePath)) {
+        return {
+          success: false,
+          errorMessage: `Cannot export: overlay ${clip.filename} not found`,
+        };
+      }
+    }
+
     // Probe all source files in parallel to get metadata
     const probeResults: VideoProbeResult[] = [];
+    const overlayProbeResults: VideoProbeResult[] = [];
     try {
       const probePromises = effectiveClips.map(clip =>
         probeSourceFile(clip.filePath).catch(error => ({
@@ -142,6 +180,28 @@ async function handleExportVideo(
           };
         }
         probeResults.push(result as VideoProbeResult);
+      }
+
+      // Probe overlay files
+      if (overlayClips.length > 0) {
+        const overlayProbePromises = overlayClips.map(clip =>
+          probeSourceFile(clip.filePath).catch(error => ({
+            error: true,
+            clip,
+            message: error.message,
+          }))
+        );
+        const overlayResults = await Promise.all(overlayProbePromises);
+
+        for (const result of overlayResults) {
+          if (result && 'error' in result) {
+            return {
+              success: false,
+              errorMessage: `Failed to read overlay file: ${result.clip.filename}. ${result.message}`,
+            };
+          }
+          overlayProbeResults.push(result as VideoProbeResult);
+        }
       }
     } catch (error) {
       return {
@@ -180,7 +240,10 @@ async function handleExportVideo(
       outputResolution,
       probeResults,
       outputFrameRate,
-      outputBitrate
+      outputBitrate,
+      overlayTracks,
+      overlayClips,
+      overlayProbeResults
     );
 
     // Log command for debugging
@@ -327,6 +390,7 @@ function determineOutputResolution(probeResults: VideoProbeResult[]): { width: n
  * Build FFmpeg command arguments with trim + concat filters
  * Now with conditional scaling and FPS filtering for better performance
  * Story 14: Now accepts preset-specific frameRate and bitrate
+ * Now supports overlay tracks with video compositing and audio mixing
  */
 function buildFFmpegCommand(
   clips: Clip[],
@@ -334,12 +398,29 @@ function buildFFmpegCommand(
   outputResolution: { width: number; height: number },
   probeResults: VideoProbeResult[],
   outputFrameRate = 30,
-  outputBitrate = '8M'
+  outputBitrate = '8M',
+  overlayTracks?: Array<{
+    clips: Array<{
+      clipId: string;
+      inPoint: number;
+      outPoint: number;
+      startTime: number;
+    }>;
+  }>,
+  overlayClips: Clip[] = [],
+  overlayProbeResults: VideoProbeResult[] = []
 ): string[] {
   const args: string[] = [];
+  const hasOverlays = overlayTracks && overlayTracks.length > 0 && overlayClips.length > 0;
 
-  // Add input files
+  // Add input files for main track
   for (const clip of clips) {
+    args.push('-i', clip.filePath);
+  }
+
+  // Add input files for overlay tracks
+  let overlayInputIndex = clips.length;
+  for (const clip of overlayClips) {
     args.push('-i', clip.filePath);
   }
 
@@ -348,7 +429,7 @@ function buildFFmpegCommand(
   const videoLabels: string[] = [];
   const audioLabels: string[] = [];
 
-  // Process all video streams first
+  // Process all main track video streams first
   for (let i = 0; i < clips.length; i++) {
     const clip = clips[i];
     const probe = probeResults[i];
@@ -379,7 +460,7 @@ function buildFFmpegCommand(
     videoLabels.push(`[v${i}]`);
   }
 
-  // Then process all audio streams
+  // Process all main track audio streams
   for (let i = 0; i < clips.length; i++) {
     const clip = clips[i];
 
@@ -388,13 +469,88 @@ function buildFFmpegCommand(
     audioLabels.push(`[a${i}]`);
   }
 
-  // Concat streams: concat expects inputs grouped per segment (video+audio)
+  // Concat main track streams: concat expects inputs grouped per segment (video+audio)
   const concatInputs: string[] = [];
   for (let i = 0; i < clips.length; i++) {
     concatInputs.push(videoLabels[i], audioLabels[i]);
   }
-  const concatFilter = `${concatInputs.join('')}concat=n=${clips.length}:v=1:a=1[outv][outa]`;
+  const baseVideoLabel = hasOverlays ? '[basev]' : '[outv]';
+  const concatFilter = `${concatInputs.join('')}concat=n=${clips.length}:v=1:a=1${baseVideoLabel}[basea]`;
   filterParts.push(concatFilter);
+
+  let currentVideoLabel = baseVideoLabel;
+  const overlayAudioLabels: string[] = [];
+
+  // Process overlay tracks if present
+  if (hasOverlays && overlayTracks) {
+    let overlayClipIndex = 0;
+    
+    // Calculate overlay size (22% width, max 360px, positioned bottom-right)
+    const overlayWidth = Math.min(Math.round(outputResolution.width * 0.22), 360);
+    const overlayHeight = Math.round((overlayWidth / 16) * 9); // Assume 16:9 aspect ratio
+    const overlayX = outputResolution.width - overlayWidth - 32; // 32px from right
+    const overlayY = outputResolution.height - overlayHeight - 96; // 96px from bottom
+
+    // Process each overlay track
+    for (let trackIndex = 0; trackIndex < overlayTracks.length; trackIndex++) {
+      const track = overlayTracks[trackIndex];
+      
+      for (let clipIndex = 0; clipIndex < track.clips.length; clipIndex++) {
+        const overlayClipInfo = track.clips[clipIndex];
+        const overlayClip = overlayClips[overlayClipIndex];
+        const overlayProbe = overlayProbeResults[overlayClipIndex];
+        const inputIndex = overlayInputIndex + overlayClipIndex;
+
+        // Process overlay video: trim, scale, and format
+        let overlayVideoFilter = `[${inputIndex}:v]trim=start=${overlayClip.inPoint}:end=${overlayClip.outPoint},setpts=PTS-STARTPTS`;
+        
+        // Scale overlay to target size (maintain aspect ratio)
+        overlayVideoFilter += `,scale=${overlayWidth}:${overlayHeight}:force_original_aspect_ratio=decrease`;
+        overlayVideoFilter += `,pad=${overlayWidth}:${overlayHeight}:(ow-iw)/2:(oh-ih)/2`;
+        overlayVideoFilter += `,setsar=1`;
+        
+        // Apply fps filter if needed
+        const needsFpsConversion = Math.abs(overlayProbe.fps - outputFrameRate) > 0.1;
+        if (needsFpsConversion) {
+          overlayVideoFilter += `,fps=${outputFrameRate}`;
+        }
+
+        // Overlay with enable expression to show only during clip time
+        const clipStartTime = overlayClipInfo.startTime;
+        const clipEndTime = overlayClipInfo.startTime + (overlayClipInfo.outPoint - overlayClipInfo.inPoint);
+        
+        overlayVideoFilter += `[ov${overlayClipIndex}]`;
+        filterParts.push(overlayVideoFilter);
+
+        // Overlay on top of current video
+        const isLastOverlay = trackIndex === overlayTracks.length - 1 && clipIndex === track.clips.length - 1;
+        const outputLabel = isLastOverlay ? '[outv]' : `[ov${trackIndex}_${overlayClipIndex}]`;
+        const overlayFilter = `${currentVideoLabel}[ov${overlayClipIndex}]overlay=x=${overlayX}:y=${overlayY}:enable='between(t,${clipStartTime},${clipEndTime})'${outputLabel}`;
+        filterParts.push(overlayFilter);
+        currentVideoLabel = outputLabel;
+
+        // Process overlay audio
+        const delayMs = Math.round(clipStartTime * 1000);
+        filterParts.push(`[${inputIndex}:a]atrim=start=${overlayClip.inPoint}:end=${overlayClip.outPoint},asetpts=PTS-STARTPTS,adelay=${delayMs}|${delayMs}[oa${overlayClipIndex}]`);
+        overlayAudioLabels.push(`[oa${overlayClipIndex}]`);
+
+        overlayClipIndex++;
+      }
+    }
+
+    // Mix all audio tracks (main + overlays)
+    if (overlayAudioLabels.length > 0) {
+      const allAudioLabels = ['[basea]', ...overlayAudioLabels];
+      const audioMixFilter = `${allAudioLabels.join('')}amix=inputs=${allAudioLabels.length}:duration=longest[outa]`;
+      filterParts.push(audioMixFilter);
+    } else {
+      filterParts.push('[basea]acopy[outa]');
+    }
+  } else {
+    // No overlays, just copy base audio
+    filterParts.push('[basea]acopy[outa]');
+  }
+
 
   args.push('-filter_complex', filterParts.join(';'));
 
