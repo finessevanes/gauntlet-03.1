@@ -22,6 +22,7 @@ export function TimelineV2() {
   const containerRef = useRef<HTMLDivElement>(null);
   const [containerWidth, setContainerWidth] = useState(0);
   const [isDraggingOver, setIsDraggingOver] = useState(false);
+  const [trackHeights, setTrackHeights] = useState<{ trackId: string; top: number; height: number }[]>([]);
 
   // Log only on first mount (not on every render)
   useEffect(() => {
@@ -43,6 +44,7 @@ export function TimelineV2() {
     startX: number;
     originalClip: TimelineClip;
     currentX?: number; // Live mouse position for preview
+    hasMoved?: boolean; // Track if we've exceeded the drag threshold
   } | null>(null);
 
   // Store state - New timeline
@@ -86,7 +88,19 @@ export function TimelineV2() {
     return maxEnd;
   };
 
+  // Calculate total height needed based on tracks and lanes
+  const getTotalHeight = () => {
+    let totalHeight = 0;
+    for (const track of doc.tracks) {
+      const trackHeaderHeight = 40; // h-10
+      const laneHeight = 64; // h-16 per lane
+      totalHeight += trackHeaderHeight + track.lanes.length * laneHeight;
+    }
+    return totalHeight;
+  };
+
   const totalDuration = getTotalDuration();
+  const totalHeight = getTotalHeight();
   const totalWidth = totalDuration * pixelsPerTick;
   const playheadPosition = doc.selection?.playhead || 0;
   const playheadX = playheadPosition * pixelsPerTick;
@@ -347,17 +361,33 @@ export function TimelineV2() {
   useEffect(() => {
     if (!dragState) return;
 
+    const DRAG_THRESHOLD = 5; // pixels - minimum distance before drag starts
+
     const handleMouseMove = (e: MouseEvent) => {
-      // Update cursor during drag
-      document.body.style.cursor = 'grabbing';
+      const deltaX = Math.abs(e.clientX - dragState.startX);
+      const hasMoved = deltaX > DRAG_THRESHOLD;
 
       // Update drag state with current mouse position for live preview
-      setDragState((prev) => (prev ? { ...prev, currentX: e.clientX } : null));
+      setDragState((prev) => {
+        if (!prev) return null;
+        const newState = { ...prev, currentX: e.clientX, hasMoved };
+        return newState;
+      });
+
+      // Only change cursor to grabbing if we've exceeded drag threshold
+      if (hasMoved) {
+        document.body.style.cursor = 'grabbing';
+      }
     };
 
     const handleMouseUp = (e: MouseEvent) => {
-      // Finish drag
-      handleDragEnd(dragState.clipId, e as any);
+      // Only finish drag if we actually moved beyond threshold
+      if (dragState.hasMoved) {
+        handleDragEnd(dragState.clipId, e as any);
+      } else {
+        // Just clear the drag state without moving anything
+        setDragState(null);
+      }
       document.body.style.cursor = '';
     };
 
@@ -389,6 +419,12 @@ export function TimelineV2() {
     setSelectedClips([clipId]);
   };
 
+  // Clear drag/trim state when clicking buttons or non-timeline areas
+  const handleNonTimelineClick = () => {
+    setDragState(null);
+    setTrimState(null);
+  };
+
   // Handle drag over (allow drop from library)
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();
@@ -417,6 +453,30 @@ export function TimelineV2() {
       return;
     }
 
+    // Determine which track the drop occurred on
+    let targetTrackId = 'main-video'; // default to main track
+
+    if (containerRef.current) {
+      const containerRect = containerRef.current.getBoundingClientRect();
+      const dropY = e.clientY - containerRect.top + containerRef.current.scrollTop;
+
+      // Find which track contains this Y position
+      let accumulatedHeight = 0;
+      for (const track of doc.tracks) {
+        const trackHeaderHeight = 40; // h-10 = 40px
+        const laneHeight = 64; // h-16 = 64px per lane
+        const trackTotalHeight = trackHeaderHeight + track.lanes.length * laneHeight;
+
+        if (dropY >= accumulatedHeight && dropY < accumulatedHeight + trackTotalHeight) {
+          targetTrackId = track.id;
+          console.log('[TimelineV2] Drop on track:', track.id, 'at Y:', dropY);
+          break;
+        }
+
+        accumulatedHeight += trackTotalHeight;
+      }
+    }
+
     // Convert library clip to timeline clip
     const ticksPerSecond = doc.timebase.ticksPerSecond;
     const clipDuration = libraryClip.outPoint - libraryClip.inPoint; // in seconds
@@ -429,16 +489,16 @@ export function TimelineV2() {
       start: 0, // Will be calculated by InsertCommand
     };
 
-    // Insert at end of main track using InsertCommand
+    // Insert at end of target track using InsertCommand
     executeCommand(
       new InsertCommand({
-        trackId: 'main-video',
+        trackId: targetTrackId,
         clip: newClip,
         mode: 'ripple',
       })
     );
 
-    console.log('[TimelineV2] Added clip to timeline:', libraryClip.filename);
+    console.log('[TimelineV2] Added clip to timeline:', libraryClip.filename, 'on track:', targetTrackId);
   };
 
   // Find clip by ID
@@ -542,11 +602,18 @@ export function TimelineV2() {
       return;
     }
 
-    const deltaX = (e?.clientX || dragState.currentX || 0) - dragState.startX;
+    // Calculate movement - use currentX if available (from mouse tracking), otherwise fall back to event clientX
+    const endX = dragState.currentX !== undefined ? dragState.currentX : e?.clientX;
+    if (endX === undefined) {
+      setDragState(null);
+      return;
+    }
+
+    const deltaX = endX - dragState.startX;
     const deltaTicks = Math.round(deltaX / pixelsPerTick);
 
-    // If no movement, just clear state
-    if (deltaTicks === 0) {
+    // If no meaningful movement (less than 50 ticks = ~0.05 seconds), just clear state
+    if (Math.abs(deltaTicks) < 50) {
       setDragState(null);
       return;
     }
@@ -594,14 +661,16 @@ export function TimelineV2() {
         }
       }
 
-      // Execute move command with target index
-      executeCommand(
-        new MoveCommand({
-          clipId,
-          toIndex: targetIndex,
-          mode: 'ripple',
-        })
-      );
+      // Verify index changed before executing move
+      if (targetIndex !== currentIndex) {
+        executeCommand(
+          new MoveCommand({
+            clipId,
+            toIndex: targetIndex,
+            mode: 'ripple',
+          })
+        );
+      }
     } else {
       // Overlay track - directly set the time
       executeCommand(
@@ -618,9 +687,9 @@ export function TimelineV2() {
   };
 
   return (
-    <div className="flex flex-col h-full bg-gray-900">
+    <div className="flex flex-col h-full min-h-0 bg-gray-900">
       {/* Top Controls */}
-      <div className="flex items-center gap-4 h-12 px-4 bg-gray-800 border-b border-gray-700">
+      <div className="flex items-center gap-4 h-12 px-4 bg-gray-800 border-b border-gray-700" onClick={handleNonTimelineClick}>
         <div className="text-sm text-white font-medium">Timeline V2</div>
 
         {/* Undo/Redo */}
@@ -814,7 +883,7 @@ export function TimelineV2() {
       {/* Timeline Content */}
       <div
         ref={containerRef}
-        className={`flex-1 overflow-auto relative ${
+        className={`flex-1 min-h-0 min-w-0 overflow-auto overflow-y-scroll relative ${
           isDraggingOver ? 'bg-blue-900 bg-opacity-20' : ''
         }`}
         onClick={handleTimelineClick}
@@ -823,10 +892,13 @@ export function TimelineV2() {
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
       >
-        {/* Timeline Canvas */}
+        {/* Timeline Canvas - allows both horizontal and vertical overflow */}
         <div
           className="relative"
-          style={{ width: `${Math.max(totalWidth, containerWidth)}px` }}
+          style={{
+            width: `${Math.max(totalWidth, containerWidth)}px`,
+            height: `${totalHeight}px` // Grow based on content (tracks + lanes)
+          }}
         >
           {/* Playhead */}
           <div
@@ -836,8 +908,8 @@ export function TimelineV2() {
             <div className="absolute -top-2 -left-2 w-4 h-4 bg-red-500 rounded-full" />
           </div>
 
-          {/* Tracks */}
-          <div className="relative">
+          {/* Tracks - grow naturally based on content */}
+          <div className="relative w-full">
             {doc.tracks.map((track) => (
               <TrackV2
                 key={track.id}
@@ -861,7 +933,7 @@ export function TimelineV2() {
                     : undefined
                 }
                 dragPreview={
-                  dragState
+                  dragState && dragState.hasMoved
                     ? {
                         clipId: dragState.clipId,
                         deltaTicks: dragState.currentX

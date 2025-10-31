@@ -7,13 +7,15 @@ import React, { useEffect } from 'react';
 import { TimelineV2 } from './TimelineV2';
 import { useTimelineStore } from '../../store/timelineStore';
 import { InsertCommand } from '../../timeline/commands/InsertCommand';
-import { secondsToTicks } from '../../types/timeline';
-import type { Clip } from '../../types/timeline';
+import { secondsToTicks, TRACK_POLICY_PRESETS } from '../../types/timeline';
+import type { Clip, Track } from '../../types/timeline';
+import { v4 as uuidv4 } from 'uuid';
 
 export function TimelineDemo() {
   const executeCommand = useTimelineStore((state) => state.executeCommand);
   const doc = useTimelineStore((state) => state.doc);
   const resetTimeline = useTimelineStore((state) => state.resetTimeline);
+  const updateDoc = useTimelineStore((state) => state.updateDoc);
 
   // Load demo data on mount
   useEffect(() => {
@@ -85,12 +87,33 @@ export function TimelineDemo() {
   };
 
   const addOverlayTrack = () => {
-    // TODO: Implement track creation
-    console.log('[TimelineDemo] Add overlay track - not yet implemented');
+    // Count existing overlay tracks for naming
+    const overlayCount = doc.tracks.filter((t) => t.role === 'overlay').length;
+    const trackNumber = overlayCount + 1;
+    const trackId = `overlay-video-${uuidv4()}`;
+
+    // Create new overlay track
+    const newTrack: Track = {
+      id: trackId,
+      type: 'video',
+      role: 'overlay',
+      lanes: [{ id: `${trackId}-lane-0`, clips: [] }],
+      policy: TRACK_POLICY_PRESETS.overlay,
+      name: `Overlay ${trackNumber}`,
+      color: '#8B5CF6', // purple
+    };
+
+    // Add track to timeline
+    updateDoc((currentDoc) => ({
+      ...currentDoc,
+      tracks: [...currentDoc.tracks, newTrack],
+    }));
+
+    console.log('[TimelineDemo] Added overlay track:', newTrack.name);
   };
 
   return (
-    <div className="h-screen flex flex-col bg-gray-900">
+    <div className="h-full min-h-0 flex flex-col bg-gray-900">
       {/* Top Toolbar */}
       <div className="h-16 bg-gray-800 border-b border-gray-700 flex items-center gap-4 px-4">
         <h1 className="text-xl font-bold text-white">
@@ -122,30 +145,8 @@ export function TimelineDemo() {
       </div>
 
       {/* Timeline */}
-      <div className="flex-1 overflow-hidden">
+      <div className="flex-1 overflow-hidden min-h-0">
         <TimelineV2 />
-      </div>
-
-      {/* Info Panel */}
-      <div className="h-32 bg-gray-800 border-t border-gray-700 p-4 overflow-auto">
-        <h3 className="text-sm font-semibold text-white mb-2">
-          Current Timeline State
-        </h3>
-        <pre className="text-xs text-gray-300 font-mono">
-          {JSON.stringify(
-            {
-              tracks: doc.tracks.length,
-              totalClips: doc.tracks.reduce(
-                (sum, t) => sum + t.lanes.reduce((s, l) => s + l.clips.length, 0),
-                0
-              ),
-              playhead: doc.selection?.playhead || 0,
-              markers: doc.markers.length,
-            },
-            null,
-            2
-          )}
-        </pre>
       </div>
     </div>
   );

@@ -578,8 +578,8 @@ export const MainLayout: React.FC = () => {
         </div>
 
         {/* Bottom Panel - Timeline (NEW: Using TimelineDemo for testing) */}
-        <div className="h-80 bg-dark-900 border-t border-dark-700 flex flex-col">
-          <div className="flex-1 relative overflow-hidden">
+        <div className="h-80 bg-dark-900 border-t border-dark-700 flex flex-col min-h-0">
+          <div className="flex-1 min-h-0 relative overflow-hidden">
             <TimelineDemo />
           </div>
         </div>
@@ -590,4 +590,3 @@ export const MainLayout: React.FC = () => {
 };
 
 // Styles removed - using Tailwind CSS instead
-
